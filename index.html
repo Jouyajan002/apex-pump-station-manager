@@ -1287,6 +1287,7 @@
         <div class="filter-icons-left">
             <button class="filter-icon-btn" onclick="psToggleSort()" title="مرتب‌سازی"><i class="fas fa-bars"></i></button>
             <button class="filter-icon-btn" id="ps-transfer-btn" onclick="psOpenTransfer()" title="انتقال تیل بین ذخایر"><i class="fas fa-right-left"></i></button>
+            <button class="filter-icon-btn" id="ps-reading-btn" onclick="showMeterReadingForm()" title="قرائت میتر" style="display:none !important;"><i class="fas fa-gas-pump"></i></button>
             <button class="filter-icon-btn" onclick="psToggleFilter()" title="فیلتر پیشرفته"><i class="fas fa-filter"></i></button>
         </div>
         <h3 class="section-title-in-filter"><button class="btn-back-header" onclick="showSection('dashboard')" title="برگشت"><i class="fas fa-arrow-right"></i></button> لیست ذخایر <span id="active-warehouse-label" class="active-warehouse-label" style="display:none;"></span></h3>
@@ -1395,10 +1396,6 @@
 
     <!-- ── تب ذخایر ── -->
     <div class="ps-panel active" id="ps-panel-tanks">
-        <div class="ps-panel-actions">
-            <button type="button" class="ps-panel-btn" onclick="showProductForm()"><i class="fas fa-plus"></i> ثبت ذخیره و تیل</button>
-            <button type="button" class="ps-panel-btn ps-panel-btn-alt" onclick="psOpenTransfer()"><i class="fas fa-right-left"></i> انتقال بین ذخایر</button>
-        </div>
         <div class="table-container products-cards-container">
             <table id="products-table" class="products-cards-table">
                 <thead class="products-cards-thead">
@@ -1422,10 +1419,6 @@
 
     <!-- ── تب میتر ── -->
     <div class="ps-panel" id="ps-panel-meters" style="display:none;">
-        <div class="ps-panel-actions">
-            <button type="button" class="ps-panel-btn" onclick="showMeterForm()"><i class="fas fa-plus"></i> تعریف میتر</button>
-            <button type="button" class="ps-panel-btn ps-panel-btn-alt" onclick="showMeterReadingForm()"><i class="fas fa-gas-pump"></i> قرائت میتر</button>
-        </div>
         <div class="table-container products-cards-container">
             <table id="meters-table" class="products-cards-table">
                 <tbody>

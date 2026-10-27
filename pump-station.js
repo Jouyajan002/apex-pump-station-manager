@@ -540,7 +540,7 @@
             var showPurchase = !!window._productsShowPurchase;
             tbody.innerHTML = '';
             if (!list.length) {
-                tbody.innerHTML = '<tr class="product-card-row"><td class="product-card-cell"><div class="ps-empty"><i class="fas fa-database"></i><div>هنوز هیچ ذخیره‌ای ثبت نشده است.</div><button type="button" class="ps-panel-btn" onclick="showProductForm()"><i class="fas fa-plus"></i> ثبت ذخیره و تیل</button></div></td></tr>';
+                tbody.innerHTML = '<tr class="product-card-row"><td class="product-card-cell"><div class="ps-empty"><i class="fas fa-database"></i><div>هنوز هیچ ذخیره‌ای ثبت نشده است.</div></div></td></tr>';
             }
             var meters = getMeters();
             list.forEach(function (p) {
@@ -672,7 +672,9 @@
         if (pm) { pm.style.display = tab === 'meters' ? '' : 'none'; pm.classList.toggle('active', tab === 'meters'); }
         var s = $('global-search-products');
         if (s) { s.value = ''; s.placeholder = tab === 'meters' ? 'جستجوی میتر (نام، نمبر، نوع تیل، ذخیره)' : 'جستجوی ذخایر (نام، نمبر ذخیره، نوع تیل)'; }
-        var tb = $('ps-transfer-btn'); if (tb) tb.style.visibility = tab === 'tanks' ? '' : 'hidden';
+        // (important تا قاعدهٔ display!important نسخهٔ موبایل هم آن را پنهان نکند/نشان ندهد)
+        var tb = $('ps-transfer-btn'); if (tb) { if (tab === 'tanks') tb.style.removeProperty('display'); else tb.style.setProperty('display', 'none', 'important'); }
+        var rb = $('ps-reading-btn'); if (rb) { if (tab === 'meters') rb.style.removeProperty('display'); else rb.style.setProperty('display', 'none', 'important'); }
         var fl = $('ps-fab-label'); if (fl) fl.textContent = tab === 'meters' ? 'تعریف میتر' : 'ثبت ذخیره';
         document.querySelectorAll('.sort-menu, .filter-menu').forEach(function (m) { m.style.display = 'none'; });
         setTitle(tab === 'meters' ? 'لیست میترها' : 'لیست ذخایر');
@@ -1021,7 +1023,7 @@
         });
         tbody.innerHTML = '';
         if (!list.length) {
-            tbody.innerHTML = '<tr class="product-card-row"><td class="product-card-cell"><div class="ps-empty"><i class="fas fa-gauge-high"></i><div>' + (getMeters().length ? 'میتری با این جستجو/فیلتر پیدا نشد.' : 'هنوز هیچ میتری تعریف نشده است.') + '</div><button type="button" class="ps-panel-btn" onclick="showMeterForm()"><i class="fas fa-plus"></i> تعریف میتر</button></div></td></tr>';
+            tbody.innerHTML = '<tr class="product-card-row"><td class="product-card-cell"><div class="ps-empty"><i class="fas fa-gauge-high"></i><div>' + (getMeters().length ? 'میتری با این جستجو/فیلتر پیدا نشد.' : 'هنوز هیچ میتری تعریف نشده است.') + '</div></div></td></tr>';
             return;
         }
         list.forEach(function (m) {
