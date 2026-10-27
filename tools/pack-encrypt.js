@@ -34,7 +34,8 @@ try { AES = require(path.join(__dirname, 'aesctr.js')); }
 catch (e) { console.log('::warning::[pack] tools/aesctr.js پیدا نشد؛ رمزنگاری اعمال نشد.'); process.exit(0); }
 
 // فایل‌هایی که نباید رمز شوند (بوت‌استرپ و سرویس‌ورکر)
-var SKIP = { '__jouya_dec.js': 1, 'service-worker.js': 1 };
+// apex-ns.js پیش از __jouya_dec.js بارگذاری می‌شود (جداسازیِ حافظه)، پس نباید رمز شود
+var SKIP = { '__jouya_dec.js': 1, 'service-worker.js': 1, 'apex-ns.js': 1 };
 
 var DEC_FILENAME = '__jouya_dec.js';
 
