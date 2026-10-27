@@ -48,7 +48,7 @@ jobs:
           set -e
           rm -rf dist && mkdir -p dist
           # فایل‌های ریشه‌ایِ موردنیازِ وب
-          for f in index.html *.css *.js manifest.webmanifest version.json .nojekyll; do
+          for f in index.html oauth-callback.html *.css *.js manifest.webmanifest version.json .nojekyll; do
             [ -e "$f" ] && cp "$f" dist/ || true
           done
           # پوشه‌ها
@@ -58,6 +58,31 @@ jobs:
           # .nojekyll تا GitHub Pages فایل‌های با _ ابتدایی (__jouya_dec.js) را سرو کند
           touch dist/.nojekyll
           echo "فایل‌های ریشهٔ dist:"; ls dist | head -50
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  ورودِ گوگل‌درایو: شناسهٔ کلاینتِ وب + نشانیِ صفحهٔ بازگشت (از سیکرت‌های مخزن)
+      #  اگر سیکرت تعریف نشده باشد، فایل دست‌نخورده می‌ماند (مقدارِ دستیِ فایل حفظ می‌شود).
+      # ══════════════════════════════════════════════════════════════════════
+      - name: تنظیمِ ورودِ گوگل (کلاینتِ وب)
+        shell: bash
+        env:
+          WEB_ID: ${{ secrets.APEXPS_GOOGLE_WEB_CLIENT_ID }}
+          REDIRECT: ${{ secrets.APEXPS_OAUTH_REDIRECT_URL }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          F="dist/jouya-google-config.js"
+          if [ ! -f "$F" ]; then echo "::warning::$F پیدا نشد"; exit 0; fi
+          if [ -z "$REDIRECT" ]; then REDIRECT="https://$(echo "$OWNER" | tr '[:upper:]' '[:lower:]').github.io/$REPO/oauth-callback.html"; fi
+          node -e '
+            const fs=require("fs"), f=process.argv[1], id=process.env.WEB_ID||"", rd=process.env.REDIRECT||"";
+            let s=fs.readFileSync(f,"utf8");
+            if (id) s=s.replace(/var WEB_CLIENT_ID = \x27[^\x27]*\x27;/, "var WEB_CLIENT_ID = " + JSON.stringify(id).replace(/"/g,"\x27") + ";");
+            if (rd) s=s.replace(/var OAUTH_REDIRECT_URL = \x27[^\x27]*\x27;/, "var OAUTH_REDIRECT_URL = " + JSON.stringify(rd).replace(/"/g,"\x27") + ";");
+            fs.writeFileSync(f,s);
+          ' "$F"
+          if [ -n "$WEB_ID" ]; then echo "شناسهٔ کلاینتِ وب تنظیم شد."; else echo "::warning::سیکرتِ APEXPS_GOOGLE_WEB_CLIENT_ID تعریف نشده — ورودِ گوگل در وب/اندروید غیرفعال می‌ماند."; fi
+          echo "صفحهٔ بازگشت: $REDIRECT"
 
       - name: نصبِ ابزارِ محافظت
         run: npm install --no-audit --no-fund javascript-obfuscator@4

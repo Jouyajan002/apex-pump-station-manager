@@ -140,6 +140,31 @@ jobs:
             console.log("بستهٔ وب کامل است — فایل‌های الزامی موجودند ("+refs.size+" ارجاع، "+optional.size+" اختیاری).");
           '
 
+      # ══════════════════════════════════════════════════════════════════════
+      #  ورودِ گوگل‌درایو: شناسهٔ کلاینتِ وب + نشانیِ صفحهٔ بازگشت (از سیکرت‌های مخزن)
+      #  اگر سیکرت تعریف نشده باشد، فایل دست‌نخورده می‌ماند (مقدارِ دستیِ فایل حفظ می‌شود).
+      # ══════════════════════════════════════════════════════════════════════
+      - name: تنظیمِ ورودِ گوگل (کلاینتِ وب)
+        shell: bash
+        env:
+          WEB_ID: ${{ secrets.APEXPS_GOOGLE_WEB_CLIENT_ID }}
+          REDIRECT: ${{ secrets.APEXPS_OAUTH_REDIRECT_URL }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          F="www/jouya-google-config.js"
+          if [ ! -f "$F" ]; then echo "::warning::$F پیدا نشد"; exit 0; fi
+          if [ -z "$REDIRECT" ]; then REDIRECT="https://$(echo "$OWNER" | tr '[:upper:]' '[:lower:]').github.io/$REPO/oauth-callback.html"; fi
+          node -e '
+            const fs=require("fs"), f=process.argv[1], id=process.env.WEB_ID||"", rd=process.env.REDIRECT||"";
+            let s=fs.readFileSync(f,"utf8");
+            if (id) s=s.replace(/var WEB_CLIENT_ID = \x27[^\x27]*\x27;/, "var WEB_CLIENT_ID = " + JSON.stringify(id).replace(/"/g,"\x27") + ";");
+            if (rd) s=s.replace(/var OAUTH_REDIRECT_URL = \x27[^\x27]*\x27;/, "var OAUTH_REDIRECT_URL = " + JSON.stringify(rd).replace(/"/g,"\x27") + ";");
+            fs.writeFileSync(f,s);
+          ' "$F"
+          if [ -n "$WEB_ID" ]; then echo "شناسهٔ کلاینتِ وب تنظیم شد."; else echo "::warning::سیکرتِ APEXPS_GOOGLE_WEB_CLIENT_ID تعریف نشده — ورودِ گوگل در وب/اندروید غیرفعال می‌ماند."; fi
+          echo "صفحهٔ بازگشت: $REDIRECT"
+
       - name: نصب Capacitor و افزونه‌ها
         run: |
           set -e
@@ -185,6 +210,21 @@ jobs:
       #  توجه: بازگردانیِ پس از حذف به وجودِ حسابِ گوگل/transportِ بکاپ روی گوشی وابسته
       #  است؛ برای تضمینِ کامل، «پشتیبانِ دستی/گوگل‌درایو» داخلِ برنامه هم در دسترس است.
       # ══════════════════════════════════════════════════════════════════════
+      # بازگشت از ورودِ گوگل (مرورگرِ سیستم) به اپ با لینکِ apexps://oauth
+      - name: ثبتِ لینکِ بازگشتِ ورودِ گوگل (apexps://oauth)
+        run: |
+          set -e
+          MF="android/app/src/main/AndroidManifest.xml"
+          if ! grep -q 'android:scheme="apexps"' "$MF"; then
+            node -e '
+              const fs=require("fs"), f=process.argv[1]; let s=fs.readFileSync(f,"utf8");
+              const filt="\n            <intent-filter>\n                <action android:name=\"android.intent.action.VIEW\" />\n                <category android:name=\"android.intent.category.DEFAULT\" />\n                <category android:name=\"android.intent.category.BROWSABLE\" />\n                <data android:scheme=\"apexps\" android:host=\"oauth\" />\n            </intent-filter>\n";
+              const i=s.indexOf("</activity>"); if(i<0){console.error("activity پیدا نشد");process.exit(1);}
+              s=s.slice(0,i)+filt+"        "+s.slice(i); fs.writeFileSync(f,s);
+            ' "$MF"
+          fi
+          grep -n 'apexps' "$MF"
+
       - name: فعال‌سازیِ ماندگاریِ داده (Auto Backup)
         run: |
           set -e
