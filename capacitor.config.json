@@ -1,0 +1,11 @@
+{
+  "appId": "com.apexpump.station",
+  "appName": "APEX Pump Station",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

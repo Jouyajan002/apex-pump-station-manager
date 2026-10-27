@@ -1,0 +1,409 @@
+name: ساخت نسخهٔ موبایل اندروید (Capacitor APK)
+
+# دستی اجرا می‌شود، و همچنین با ساختِ یک تگِ نسخه (مثلاً v1.0.8) خودکار —
+# پس یک تگ، هم نسخهٔ ویندوز و هم نسخهٔ اندروید را می‌سازد.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: اندروید (APK)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      - name: نصب Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: نصب Java (برای Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # نکته: پیش‌فرضِ این اکشن می‌خواهد بستهٔ منسوخِ «tools» را نصب کند که دیگر در
+      # مخزنِ SDK نیست و باعثِ خطای «Failed to find package 'tools'» می‌شود. این‌جا
+      # صراحتاً فقط بسته‌های لازمِ Capacitor 6 (API 34) را نصب می‌کنیم — بدونِ «tools».
+      - name: آماده‌سازی Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  تعیینِ شمارهٔ نسخه از روی تگ (versionName) + یک versionCode صعودی
+      #  ---------------------------------------------------------------------
+      #  • اگر با تگ v1.0.8 اجرا شود → versionName=1.0.8
+      #  • اگر دستی اجرا شود → از version.json خوانده می‌شود
+      #  • versionCode همیشه = شمارهٔ اجرا (github.run_number) تا همیشه صعودی باشد
+      # ══════════════════════════════════════════════════════════════════════
+      - name: تعیینِ نسخه
+        id: ver
+        run: |
+          REF="${GITHUB_REF##*/}"
+          if [[ "$REF" == v* ]]; then
+            VNAME="${REF#v}"
+          elif [ -f version.json ]; then
+            VNAME=$(node -e "try{process.stdout.write(String(require('./version.json').version||'1.0.0'))}catch(e){process.stdout.write('1.0.0')}")
+          else
+            VNAME="1.0.0"
+          fi
+          echo "vname=$VNAME" >> "$GITHUB_OUTPUT"
+          echo "vcode=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "نسخه: $VNAME (code ${GITHUB_RUN_NUMBER})"
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  آماده‌سازیِ پوشهٔ www — همان فایل‌های وب که در APK بسته می‌شوند
+      #  ---------------------------------------------------------------------
+      #  مثلِ dist-webِ ویندوز، کاملاً درون‌خطی. فایلِ تازهٔ وب اضافه کردید؟ نامش را
+      #  به WEB_FILES اضافه کنید. فایلی که نباشد بی‌صدا رد می‌شود.
+      #  service-worker.js و pwa-register.js عمداً داخلِ APK نمی‌روند (اپلیکیشنِ
+      #  نیتیو به Service Worker نیاز ندارد و وجودش می‌تواند با کشِ داخلی تداخل کند).
+      # ══════════════════════════════════════════════════════════════════════
+      - name: آماده‌سازیِ www
+        run: |
+          set -e
+          mkdir -p www
+          WEB_FILES="index.html \
+            style.css auth-system.css dashboard-store-info-fix.css mobile-responsive.css pump-station.css \
+            apex-ns.js jouya-google-config.js pump-station.js \
+            tauri-bridge.js database.js script.js persian-date-utils.js \
+            auth-system.js drive-backup.js instant-update-fix.js delivery-list.js \
+            currency-system.js sync-config.js sync-layer.js auth-cloud.js \
+            device-guard.js capacitor-back.js capacitor-share.js \
+            demo-mode.js mobile-fit.js jouya-selftest.js jouya-ux-fixes.js \
+            manifest.webmanifest version.json"
+          for f in $WEB_FILES; do
+            if [ -f "$f" ]; then cp "$f" "www/$f"; fi
+          done
+          for d in assets build; do
+            if [ -d "$d" ]; then cp -r "$d" "www/$d"; fi
+          done
+          if [ ! -f www/index.html ]; then echo "::error::index.html در ریشه پیدا نشد"; exit 1; fi
+          echo "— محتوای www —"; ls -la www | head -40
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  بررسیِ کاملیِ بسته — تضمینِ «نسخهٔ اندروید = نسخهٔ وب»
+      #  ---------------------------------------------------------------------
+      #  مرحلهٔ بالا فایلِ نبوده را بی‌صدا رد می‌کند؛ یعنی اگر روزی نامِ فایلی از فهرست
+      #  جا بیفتد یا در مخزن نباشد، APK بدونِ آن ساخته می‌شود و باگ‌های قدیمی برمی‌گردند
+      #  بدونِ هیچ هشداری. اینجا هر فایلی که index.html واقعاً استفاده می‌کند بررسی
+      #  می‌شود و اگر در بسته نباشد، بیلد با خطای روشن متوقف می‌گردد.
+      #  استثناها: pwa-register.js و service-worker.js عمداً در اپِ نیتیو نیستند
+      #  (Service Worker با سرویس‌دهیِ فایل‌های Capacitor تداخل می‌کند).
+      # ══════════════════════════════════════════════════════════════════════
+      - name: بررسیِ کاملیِ بستهٔ وب
+        run: |
+          node -e '
+            const fs=require("fs"), path=require("path");
+            const EXCEPT=new Set(["pwa-register.js","service-worker.js","__jouya_dec.js"]);
+            const html=fs.readFileSync("www/index.html","utf8");
+            const refs=new Set();       // الزامی
+            const optional=new Set();   // اختیاری (دارای onerror → نبودنشان اشکالی ندارد)
+            // اسکریپت‌ها: اگر تگ onerror داشته باشد، عمداً اختیاری است و نبودنش بیلد را نمی‌شکند
+            let m; const sre=/<script\b[^>]*>/g;
+            while((m=sre.exec(html))){
+              const tag=m[0]; const sm=/src=["\x27]([^"\x27]+)["\x27]/.exec(tag);
+              if(!sm)continue;
+              if(/\bonerror\b/.test(tag)) optional.add(sm[1]); else refs.add(sm[1]);
+            }
+            // CSSها الزامی‌اند
+            const lre=/<link[^>]+href=["\x27]([^"\x27]+)["\x27]/g;
+            while((m=lre.exec(html))) refs.add(m[1]);
+            const isRemote=(r)=>/^(https?:)?\/\//.test(r)||r.startsWith("data:")||r.startsWith("#");
+            const missing=[], missOpt=[];
+            for(const r of refs){
+              if(isRemote(r))continue;
+              const rel=r.replace(/^\.\//,"").split("?")[0];
+              if(EXCEPT.has(rel))continue;
+              if(!fs.existsSync(path.join("www",rel))) missing.push(rel);
+            }
+            for(const r of optional){
+              if(isRemote(r))continue;
+              const rel=r.replace(/^\.\//,"").split("?")[0];
+              if(!fs.existsSync(path.join("www",rel))) missOpt.push(rel);
+            }
+            if(missOpt.length) console.log("::warning::فایل‌های اختیاری (onerror) که نیستند و رد شدند: "+missOpt.join(", "));
+            if(missing.length){
+              console.error("::error::این فایل‌های الزامی در بستهٔ اندروید نیستند و نسخهٔ اندروید ناقص می‌شود: "+missing.join(", "));
+              process.exit(1);
+            }
+            console.log("بستهٔ وب کامل است — فایل‌های الزامی موجودند ("+refs.size+" ارجاع، "+optional.size+" اختیاری).");
+          '
+
+      - name: نصب Capacitor و افزونه‌ها
+        run: |
+          set -e
+          cat > package.json <<'JSON'
+          {
+            "name": "apex-pump-station-mobile",
+            "version": "1.0.0",
+            "private": true,
+            "description": "APEX Pump Station Manager — بستهٔ موبایل (Capacitor)"
+          }
+          JSON
+          npm install --no-audit --no-fund \
+            @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor/browser@6 @capacitor/app@6 \
+            @capacitor/share@6 @capacitor/filesystem@6 @capacitor-community/file-opener@6 \
+            javascript-obfuscator@4
+
+      - name: پیکربندیِ Capacitor
+        run: |
+          set -e
+          cat > capacitor.config.json <<JSON
+          {
+            "appId": "com.apexpump.station",
+            "appName": "APEX Pump Station",
+            "webDir": "www",
+            "android": { "allowMixedContent": true }
+          }
+          JSON
+          cat capacitor.config.json
+
+      - name: افزودنِ پلتفرمِ اندروید
+        run: npx cap add android
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  (مورد f) ماندگاریِ دادهٔ کاربر — پشتیبان‌گیریِ خودکارِ اندروید
+      #  ---------------------------------------------------------------------
+      #  هدف: داده‌های کاربر (localStorageِ WebView) در این حالت‌ها از بین نرود:
+      #    • «بروزرسانیِ» برنامه (نصبِ APKِ تازه روی نسخهٔ قبلی): چون appId ثابت
+      #      (com.apexpump.station) و versionCode صعودی است، داده به‌طورِ خودکار می‌ماند.
+      #    • «نصبِ مجدد پس از حذف»: با فعال‌کردنِ Android Auto Backup، اندروید داده را
+      #      در فضای کاربر نگه می‌دارد و هنگامِ نصبِ دوباره برمی‌گرداند (مثلِ ماندگاریِ
+      #      فایلِ نسخهٔ Tauri). این کار با allowBackup=true و قواعدِ بکاپِ زیر انجام
+      #      می‌شود؛ هیچ داده‌ای از بکاپ کنار گذاشته نمی‌شود تا همه‌چیز بازگردد.
+      #  توجه: بازگردانیِ پس از حذف به وجودِ حسابِ گوگل/transportِ بکاپ روی گوشی وابسته
+      #  است؛ برای تضمینِ کامل، «پشتیبانِ دستی/گوگل‌درایو» داخلِ برنامه هم در دسترس است.
+      # ══════════════════════════════════════════════════════════════════════
+      - name: فعال‌سازیِ ماندگاریِ داده (Auto Backup)
+        run: |
+          set -e
+          MF="android/app/src/main/AndroidManifest.xml"
+          XMLDIR="android/app/src/main/res/xml"
+          if [ ! -f "$MF" ]; then
+            echo "::error::AndroidManifest.xml پیدا نشد ($MF)"; exit 1
+          fi
+          mkdir -p "$XMLDIR"
+
+          # قواعدِ بکاپ برای اندروید ۱۱ و پایین‌تر (fullBackupContent)
+          cat > "$XMLDIR/jouya_backup_rules.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <!-- همهٔ دادهٔ برنامه بکاپ می‌شود: WebView localStorage در sharedpref/database/file نگه‌داری می‌شود -->
+          <full-backup-content>
+              <include domain="sharedpref" path="." />
+              <include domain="database" path="." />
+              <include domain="file" path="." />
+          </full-backup-content>
+          XML
+
+          # قواعدِ استخراجِ داده برای اندروید ۱۲+ (dataExtractionRules)
+          cat > "$XMLDIR/jouya_data_extraction_rules.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <data-extraction-rules>
+              <cloud-backup>
+                  <include domain="sharedpref" path="." />
+                  <include domain="database" path="." />
+                  <include domain="file" path="." />
+              </cloud-backup>
+              <device-transfer>
+                  <include domain="sharedpref" path="." />
+                  <include domain="database" path="." />
+                  <include domain="file" path="." />
+              </device-transfer>
+          </data-extraction-rules>
+          XML
+
+          # حذفِ فاصله‌های ابتداییِ ناشی از YAML/heredoc — اعلانِ <?xml باید کاملاً اولِ خط باشد
+          sed -i 's/^[[:space:]]*//' "$XMLDIR/jouya_backup_rules.xml" "$XMLDIR/jouya_data_extraction_rules.xml"
+          echo "— jouya_backup_rules.xml —"; head -1 "$XMLDIR/jouya_backup_rules.xml"
+
+          # اطمینان از allowBackup=true روی <application>
+          if grep -q 'android:allowBackup' "$MF"; then
+            sed -i 's/android:allowBackup="[^"]*"/android:allowBackup="true"/' "$MF"
+          else
+            sed -i 's/<application /<application android:allowBackup="true" /' "$MF"
+          fi
+          # ارجاع به قواعدِ بکاپ (اگر از قبل نبود، اضافه می‌شود)
+          grep -q 'android:fullBackupContent' "$MF" || \
+            sed -i 's/<application /<application android:fullBackupContent="@xml\/jouya_backup_rules" /' "$MF"
+          grep -q 'android:dataExtractionRules' "$MF" || \
+            sed -i 's/<application /<application android:dataExtractionRules="@xml\/jouya_data_extraction_rules" /' "$MF"
+
+          # ── اجازهٔ نصبِ بروزرسانی از داخلِ خودِ برنامه ──────────────────────────
+          #  بدونِ این اجازه، اندروید بازکردنِ نصب‌کنندهٔ بسته را از داخلِ برنامه مسدود
+          #  می‌کند و بروزرسانیِ درون‌برنامه‌ای کار نمی‌کند. (کاربر در اولین بار یک‌بار
+          #  «نصب برنامه‌های ناشناس» را برای APEX Pump Station تأیید می‌کند.)
+          if ! grep -q 'REQUEST_INSTALL_PACKAGES' "$MF"; then
+            sed -i 's|<application |<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>\n    <application |' "$MF"
+          fi
+          echo "— مجوزها —"; grep -n 'uses-permission' "$MF" || true
+
+
+          echo "— <application> پس از تنظیم —"
+          grep -n '<application' "$MF" || true
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  تولیدِ آیکنِ برنامه (آیکنِ روی صفحهٔ اصلیِ گوشی)
+      #  ---------------------------------------------------------------------
+      #  منابعِ آیکن از قبل در پوشهٔ mobile-icons/capacitor-assets موجودند
+      #  (icon/foreground/background/splash). این‌ها را با نام‌های موردِانتظارِ
+      #  @capacitor/assets در پوشهٔ assets می‌گذاریم و ابزار، همهٔ mipmapهای اندروید
+      #  (آیکنِ عادی + تطبیقیِ اندروید ۸+) را می‌سازد و در پروژهٔ اندروید می‌ریزد.
+      #  اگر این مرحله به هر دلیل شکست بخورد، بیلد متوقف نمی‌شود (آیکنِ پیش‌فرض می‌ماند).
+      # ══════════════════════════════════════════════════════════════════════
+      - name: تولیدِ آیکن‌های اندروید
+        run: |
+          set -e
+          SRC="mobile-icons/capacitor-assets"
+          if [ -d "$SRC" ]; then
+            mkdir -p assets
+            # نام‌های سازگار با نسخه‌های مختلفِ @capacitor/assets
+            cp "$SRC/icon.png"            assets/icon-only.png   || true
+            cp "$SRC/icon.png"            assets/icon.png        || true
+            cp "$SRC/icon.png"            assets/logo.png        || true
+            cp "$SRC/icon-foreground.png" assets/icon-foreground.png || true
+            cp "$SRC/icon-background.png" assets/icon-background.png || true
+            cp "$SRC/splash.png"          assets/splash.png      || true
+            cp "$SRC/splash-dark.png"     assets/splash-dark.png || true
+            npx @capacitor/assets@3 generate --android \
+              || echo "::warning::تولیدِ آیکن ناموفق بود؛ آیکنِ پیش‌فرض باقی می‌ماند."
+          else
+            echo "::warning::پوشهٔ mobile-icons/capacitor-assets پیدا نشد؛ آیکنِ پیش‌فرض باقی می‌ماند."
+          fi
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  (مورد j) محافظت از سورس — درهم‌ریزیِ فایل‌های JSِ برنامه در www پیش از sync
+      #  ---------------------------------------------------------------------
+      #  نام توابعِ سراسری حفظ می‌شود (برای onclickها)، رشته‌ها رمز و توضیحات حذف
+      #  می‌شوند. اگر خروجیِ فایلی نامعتبر شد، نسخهٔ اصلیِ همان فایل می‌ماند (بیلد نمی‌شکند).
+      #  برای غیرفعال‌سازیِ موقت: متغیرِ محیطیِ JOUYA_OBFUSCATE=0 را ست کنید.
+      # ══════════════════════════════════════════════════════════════════════
+      # (مورد h) نسخهٔ داخلِ www/version.json را با همین نسخهٔ بیلد یکی می‌کنیم تا «نسخهٔ
+      # نصب‌شده» در بررسیِ بروزرسانی درست نمایش داده شود. (در اندروید نسخهٔ واقعی از APK هم
+      # خوانده می‌شود، ولی این فایل برای سازگاری به‌روز می‌ماند.)
+      - name: تزریقِ نسخه در version.json
+        run: |
+          printf '{ "version": "%s", "repo": "" }\n' "${{ steps.ver.outputs.vname }}" > www/version.json
+          cat www/version.json
+
+      - name: محافظت از سورس (obfuscate)
+        run: node tools/obfuscate.js www
+
+      # (لایهٔ ۲) رمزنگاریِ فایل‌های JS — بعد از obfuscate، قبل از sync. خروجی روی دیسک رمز می‌شود.
+      # خاموش‌کردنِ فوری: JOUYA_ENCRYPT=0
+      - name: رمزنگاریِ فایل‌ها (پکِر لایهٔ ۲)
+        run: node tools/pack-encrypt.js www
+
+      - name: همگام‌سازیِ فایل‌های وب
+        run: npx cap sync android
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  مسیرهای FileProvider — لازم برای «نصبِ بروزرسانی از داخلِ برنامه»
+      #  ---------------------------------------------------------------------
+      #  اندروید فایلِ APK را فقط از یک نشانیِ content:// که FileProvider ساخته و
+      #  «اجازهٔ خواندنِ موقت» دارد نصب می‌کند. اگر پوشهٔ فایل در file_paths.xml
+      #  نیامده باشد، ساختِ آن نشانی شکست می‌خورد و نصب‌کنندهٔ بسته باز می‌شود ولی
+      #  نصب هرگز شروع نمی‌شود — دقیقاً همان مشکلِ گزارش‌شده. این‌جا همهٔ پوشه‌های
+      #  ممکن پوشش داده می‌شود. عمداً «پس از» cap sync اجرا می‌شود تا بازنویسی نشود.
+      # ══════════════════════════════════════════════════════════════════════
+      - name: تنظیمِ مسیرهای FileProvider
+        run: |
+          set -e
+          MF="android/app/src/main/AndroidManifest.xml"
+          FP="android/app/src/main/res/xml/file_paths.xml"
+          mkdir -p "$(dirname "$FP")"
+          cat > "$FP" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+              <files-path          name="files"           path="." />
+              <cache-path          name="cache"           path="." />
+              <external-path       name="external"        path="." />
+              <external-files-path name="external_files"  path="." />
+              <external-cache-path name="external_cache"  path="." />
+          </paths>
+          XML
+          echo "— file_paths.xml —"; cat "$FP"
+          echo "— FileProvider در مانیفست —"
+          grep -n 'FileProvider' -A 6 "$MF" || echo "::warning::FileProvider در مانیفست پیدا نشد."
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  بررسیِ ثبتِ افزونه‌های نیتیو (بدونِ نیاز به تستِ روی گوشی)
+      #  ---------------------------------------------------------------------
+      #  اشتراکِ فایلِ PDF در اندروید فقط با افزونه‌های Share و Filesystem ممکن است.
+      #  اگر ثبت نشده باشند، APK ساخته می‌شود ولی «ارسال به واتساپ» کار نمی‌کند.
+      #  این مرحله همین‌جا بیلد را متوقف می‌کند تا از همان لاگِ بیلد بفهمیم مشکل کجاست.
+      # ══════════════════════════════════════════════════════════════════════
+      - name: بررسیِ افزونه‌های Capacitor
+        run: |
+          set -e
+          echo "— افزونه‌های شناسایی‌شده —"
+          npx cap ls android || true
+          SETTINGS="android/capacitor.settings.gradle"
+          if [ ! -f "$SETTINGS" ]; then
+            echo "::error::$SETTINGS پیدا نشد — همگام‌سازیِ Capacitor کامل نشده است."; exit 1
+          fi
+          echo "— محتوای $SETTINGS —"; cat "$SETTINGS"
+          MISSING=""
+          grep -q "capacitor-share" "$SETTINGS"      || MISSING="$MISSING @capacitor/share"
+          grep -q "capacitor-filesystem" "$SETTINGS" || MISSING="$MISSING @capacitor/filesystem"
+          grep -q "capacitor-app" "$SETTINGS"        || MISSING="$MISSING @capacitor/app"
+          # افزونهٔ بازکنندهٔ فایل دیگر «اختیاری» نیست: نصبِ APK فقط با content:// از
+          # FileProvider کار می‌کند و همین افزونه آن را می‌سازد. بدونِ آن، نصب‌کنندهٔ
+          # بسته باز می‌شد ولی نصب هرگز شروع نمی‌شد. پس نبودنش خطای بیلد است.
+          grep -q "file-opener" "$SETTINGS" || MISSING="$MISSING @capacitor-community/file-opener"
+          if [ -n "$MISSING" ]; then
+            echo "::error::این افزونه‌ها در پروژهٔ اندروید ثبت نشده‌اند:$MISSING — ارسال به واتساپ کار نخواهد کرد."
+            exit 1
+          fi
+          echo "✓ افزونه‌های Share و Filesystem و App درست ثبت شده‌اند."
+
+      # نام و کدِ نسخه را داخلِ گریدلِ اندروید تزریق می‌کنیم تا در «دربارهٔ برنامه» و
+      # در مقایسهٔ بروزرسانی درست نمایش داده شود.
+      - name: تزریقِ شمارهٔ نسخه
+        run: |
+          set -e
+          GRADLE="android/app/build.gradle"
+          sed -i "s/versionCode .*/versionCode ${{ steps.ver.outputs.vcode }}/" "$GRADLE"
+          sed -i "s/versionName .*/versionName \"${{ steps.ver.outputs.vname }}\"/" "$GRADLE"
+          grep -E "versionCode|versionName" "$GRADLE"
+
+      - name: ساختِ APK
+        run: |
+          set -e
+          cd android
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: نام‌گذاریِ خروجی
+        id: out
+        run: |
+          set -e
+          SRC="android/app/build/outputs/apk/debug/app-debug.apk"
+          DST="APEX-Pump-Station-${{ steps.ver.outputs.vname }}.apk"
+          cp "$SRC" "$DST"
+          echo "apk=$DST" >> "$GITHUB_OUTPUT"
+          ls -la "$DST"
+
+      - name: بارگذاریِ APK (آرتیفکت)
+        uses: actions/upload-artifact@v4
+        with:
+          name: apex-pump-station-android-apk
+          if-no-files-found: error
+          path: ${{ steps.out.outputs.apk }}
+
+      - name: انتشار در Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.out.outputs.apk }}
+          fail_on_unmatched_files: false

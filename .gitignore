@@ -1,0 +1,16 @@
+# APEX Pump Station Manager
+node_modules/
+dist/
+www/
+android/
+src-tauri/target/
+src-tauri/dist-web/
+src-tauri/gen/
+*.log
+.DS_Store
+Thumbs.db
+# هرگز این‌ها را کامیت نکنید
+.env
+*.pem
+*.keystore
+service_role*.txt

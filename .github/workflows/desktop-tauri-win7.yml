@@ -1,0 +1,231 @@
+name: ساخت نسخهٔ نصبیِ ویندوز — سازگار با ویندوز ۷ (Tauri)
+
+# این ورک‌فلو یک بیلدِ «سازگار با ویندوز ۷» می‌سازد که روی ویندوز ۷/۸/۱۰/۱۱ — همه —
+# اجرا می‌شود. یعنی همین یک بیلد برای همهٔ کاربرانِ دسکتاپ کافی است.
+#
+# روشِ فنی (مهم):
+#   Tauri 2.12 به وابستگی‌هایی نیاز دارد که فقط با Rust جدید (edition2024 / ۱.۸۵+)
+#   کامپایل می‌شوند؛ ولی Rust جدید به‌طورِ عادی باینریِ ناسازگار با ویندوز ۷ می‌سازد
+#   (تابعِ ProcessPrng). راهِ حل: هدفِ رسمیِ «x86_64-win7-windows-msvc» با toolchainِ
+#   nightly و build-std. این‌طور همه‌چیز با Rust جدید کامپایل می‌شود ولی خروجی روی
+#   ویندوز ۷ هم اجرا می‌گردد. هیچ وابستگی‌ای پایین آورده نمی‌شود و مهندسیِ برنامه
+#   (از جمله نسخهٔ windows برای اشتراکِ واتساپ) دست‌نخورده می‌ماند.
+#
+# این ورک‌فلو «فقط دستی» اجرا می‌شود (workflow_dispatch) تا با ورک‌فلوی اصلیِ انتشار
+# (desktop-tauri.yml برای ویندوز ۱۰/۱۱) روی تگ تداخل نکند. هر وقت خواستید نسخهٔ ویندوز ۷
+# را جداگانه بسازید، از تبِ Actions → این ورک‌فلو → دکمهٔ «Run workflow» اجرایش کنید.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'نسخه (مثلاً 1.1.0). خالی بگذارید اگر هنگامِ اجرا، خودِ تگ را به‌عنوان ref انتخاب کرده‌اید.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  WIN7_TARGET: x86_64-win7-windows-msvc   # برای ویندوز ۷ِ ۳۲بیتی: i686-win7-windows-msvc
+
+jobs:
+  windows7:
+    name: ویندوز ۷+ (x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      # اگر خطای «failed to watch Cargo.toml» گرفتید، اینجا را ببینید: باید src-tauri کامل باشد.
+      - name: بررسیِ محتوای ریشهٔ پروژه
+        shell: pwsh
+        run: |
+          Write-Host "پوشهٔ کاری: $(Get-Location)"
+          foreach ($m in @('index.html','script.js','src-tauri/Cargo.toml','src-tauri/tauri.conf.json','src-tauri/src/main.rs')) {
+            $ok = Test-Path -LiteralPath $m
+            Write-Host ("  {0,-34} {1}" -f $m, $(if ($ok) { 'موجود' } else { '*** نیست ***' }))
+          }
+          if (-not (Test-Path -LiteralPath 'src-tauri/tauri.conf.json')) {
+            throw "پوشهٔ src-tauri کامل در مخزن نیست. فایلِ src-tauri را کامل آپلود کنید."
+          }
+
+      # toolchainِ nightly + rust-src (برای build-std لازم است). هدفِ win7 تایر-۳ است و
+      # std ندارد؛ build-std آن را از rust-src می‌سازد، پس rustup target add لازم نیست.
+      - name: نصب Rust nightly + rust-src
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: کشِ Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          prefix-key: 'rust-cache-win7'
+
+      - name: کشِ Tauri CLI
+        id: cli-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri.exe
+          key: cargo-tauri-win7-v3-${{ runner.os }}
+
+      # نصبِ Tauri CLI بدونِ build-std (چون متغیرِ build-std فقط روی مرحلهٔ بیلدِ پروژه ست می‌شود).
+      - name: نصب Tauri CLI
+        if: steps.cli-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version "^2" --locked
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  آماده‌سازیِ dist-web (همان منطقِ ورک‌فلوی اصلی؛ کاملاً درون‌خطی)
+      # ══════════════════════════════════════════════════════════════════════
+      - name: آماده‌سازیِ فایل‌های وب (dist-web)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Root = (Get-Location).Path
+          $Dist = Join-Path $Root 'src-tauri\dist-web'
+
+          $WebFiles = @(
+            'index.html', 'print-window.html',
+            'style.css', 'auth-system.css', 'dashboard-store-info-fix.css', 'mobile-responsive.css', 'pump-station.css',
+            'apex-ns.js', 'jouya-store.js', 'jouya-google-config.js',
+            'tauri-bridge.js', 'database.js', 'script.js', 'persian-date-utils.js',
+            'auth-system.js', 'drive-backup.js', 'instant-update-fix.js', 'delivery-list.js',
+            'currency-system.js', 'sync-config.js', 'sync-layer.js', 'auth-cloud.js',
+            'device-guard.js', 'capacitor-back.js', 'capacitor-share.js',
+            'demo-mode.js', 'mobile-fit.js', 'jouya-selftest.js', 'jouya-ux-fixes.js', 'pwa-register.js',
+            'pump-station.js',
+            'manifest.webmanifest', 'version.json'
+          )
+          $WebDirs = @('assets', 'build')
+
+          if (Test-Path $Dist) { Remove-Item -Recurse -Force $Dist }
+          New-Item -ItemType Directory -Force -Path $Dist | Out-Null
+
+          $copied = 0; $missing = @()
+          foreach ($f in $WebFiles) {
+            $src = Join-Path $Root $f
+            if (Test-Path -LiteralPath $src -PathType Leaf) {
+              Copy-Item -LiteralPath $src -Destination (Join-Path $Dist $f) -Force
+              $copied++
+            } else { $missing += $f }
+          }
+          foreach ($d in $WebDirs) {
+            $src = Join-Path $Root $d
+            if (Test-Path -LiteralPath $src -PathType Container) {
+              Copy-Item -LiteralPath $src -Destination $Dist -Recurse -Force
+            } else { $missing += "$d\" }
+          }
+
+          if (-not (Test-Path -LiteralPath (Join-Path $Dist 'index.html'))) {
+            throw "index.html در ریشهٔ پروژه پیدا نشد ($Root)."
+          }
+
+          $mb = [math]::Round(((Get-ChildItem -Recurse -File $Dist | Measure-Object Length -Sum).Sum / 1MB), 2)
+          Write-Host "کپی شد: $copied فایلِ ریشه + پوشه‌های $($WebDirs -join ', ')  →  $mb مگابایت"
+          if ($missing.Count -gt 0) { Write-Host "موجود نبود (رد شد): $($missing -join ', ')" }
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  (مورد j) محافظت از سورس — درهم‌ریزیِ JSِ برنامه داخلِ dist-web پیش از embed
+      # ══════════════════════════════════════════════════════════════════════
+      # (مورد h) هنگامِ بیلد با تگ، نسخه را از تگ در version.json و tauri.conf.json یکی می‌کنیم.
+      # نسخه از یکی از این دو منبع می‌آید (به همین ترتیبِ اولویت):
+      #   ۱) ورودیِ دستیِ «version» هنگامِ Run workflow
+      #   ۲) نامِ تگ، اگر هنگامِ اجرا خودِ تگ را به‌عنوان ref انتخاب کرده باشید
+      # اگر هیچ‌کدام نبود، این مرحله رد می‌شود و نسخه همان 0.0.0 می‌ماند (فقط برای تست).
+      - name: تزریقِ نسخه (ورودیِ دستی یا تگ)
+        if: ${{ inputs.version != '' || startsWith(github.ref, 'refs/tags/v') }}
+        shell: pwsh
+        run: |
+          $v = "${{ inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($v)) { $v = "${{ github.ref_name }}" }
+          $v = $v -replace '^v',''
+          Write-Host "نسخهٔ بیلد: $v"
+          "{ ""version"": ""$v"", ""repo"": """" }" | Set-Content -Encoding UTF8 (Join-Path 'src-tauri' 'dist-web/version.json')
+          $p = 'src-tauri/tauri.conf.json'
+          (Get-Content $p -Raw) -replace '("version"\s*:\s*")[^"]*(")', ('${1}' + $v + '${2}') | Set-Content -Encoding UTF8 $p
+          $c = 'src-tauri/Cargo.toml'
+          (Get-Content $c -Raw) -replace '(?m)^(version\s*=\s*")[^"]*(")', ('${1}' + $v + '${2}') | Set-Content -Encoding UTF8 $c
+          Select-String -Path $p -Pattern '"version"' | Select-Object -First 1
+          Select-String -Path $c -Pattern '^version' | Select-Object -First 1
+
+      - name: راه‌اندازیِ Node (برای محافظتِ سورس)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: محافظت از سورس (obfuscate)
+        shell: pwsh
+        run: |
+          npm install --no-audit --no-fund javascript-obfuscator@4
+          node tools/obfuscate.js src-tauri/dist-web
+
+      # (لایهٔ ۲) رمزنگاریِ فایل‌های JS داخلِ dist-web پیش از embed. خاموش‌کردن: JOUYA_ENCRYPT=0
+      - name: رمزنگاریِ فایل‌ها (پکِر لایهٔ ۲)
+        shell: pwsh
+        run: node tools/pack-encrypt.js src-tauri/dist-web
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  ساختِ نصب‌کننده برای هدفِ ویندوز ۷ (nightly + build-std)
+      #  ---------------------------------------------------------------------
+      #  نکتهٔ مهم: هدفِ ویندوز ۷ «tier-3» است و در «rustup target list» نیست، پس اگر با
+      #  آرگومانِ --target به tauri-cli بدهیم، tauri-cli آن را رد می‌کند
+      #  («Target ... does not exist»). راهِ حل: هدف را به‌جای --target با متغیرِ
+      #  محیطیِ CARGO_BUILD_TARGET می‌دهیم؛ این‌طور خودِ cargo (با build-std) آن را
+      #  می‌سازد و از اعتبارسنجیِ --target در tauri-cli رد می‌شویم. خروجی همان
+      #  target\<هدف>\release\bundle است.
+      # ══════════════════════════════════════════════════════════════════════
+      - name: ساخت نصب‌کننده (هدفِ ویندوز ۷)
+        working-directory: src-tauri
+        env:
+          APEXPS_GOOGLE_CLIENT_ID: ${{ secrets.APEXPS_GOOGLE_CLIENT_ID }}
+          APEXPS_GOOGLE_CLIENT_SECRET: ${{ secrets.APEXPS_GOOGLE_CLIENT_SECRET }}
+          RUSTUP_TOOLCHAIN: nightly
+          CARGO_UNSTABLE_BUILD_STD: "std,panic_abort"
+          CARGO_BUILD_TARGET: ${{ env.WIN7_TARGET }}
+        run: cargo tauri build
+
+      # نامِ خروجی را «‑win7» دار می‌کنیم تا اگر روی همان تگِ نسخهٔ ویندوز ۱۰/۱۱ منتشر شد،
+      # فایل‌ها در Releases هم‌نام نشوند و روی هم بازنویسی نگردند، و کاربر هم با یک نگاه
+      # بفهمد کدام نصب‌کننده مخصوصِ ویندوز ۷ است.
+      - name: نام‌گذاریِ خروجی‌ها با نشانِ win7
+        shell: pwsh
+        run: |
+          $b = "src-tauri/target/${{ env.WIN7_TARGET }}/release/bundle"
+          if (-not (Test-Path $b)) { Write-Host "پوشهٔ bundle نیست؛ رد شد."; exit 0 }
+          Get-ChildItem -Recurse -File $b |
+            Where-Object { $_.Extension -in '.exe', '.msi' -and $_.BaseName -notmatch '-win7$' } |
+            ForEach-Object {
+              $new = $_.BaseName + '-win7' + $_.Extension
+              Rename-Item -LiteralPath $_.FullName -NewName $new
+              Write-Host "نام‌گذاری شد → $new"
+            }
+
+      - name: فهرستِ خروجی‌ها
+        if: always()
+        shell: pwsh
+        run: |
+          $b = "src-tauri/target/${{ env.WIN7_TARGET }}/release/bundle"
+          if (Test-Path $b) {
+            Get-ChildItem -Recurse -File $b |
+              Select-Object @{n='فایل';e={$_.Name}}, @{n='مگابایت';e={[math]::Round($_.Length/1MB,2)}} |
+              Format-Table -AutoSize
+          } else { Write-Host "پوشهٔ bundle ساخته نشد ($b)." }
+
+      - name: بارگذاریِ نصب‌کننده (آرتیفکت)
+        uses: actions/upload-artifact@v4
+        with:
+          name: apex-pump-station-windows7-setup
+          if-no-files-found: error
+          path: |
+            src-tauri/target/${{ env.WIN7_TARGET }}/release/bundle/nsis/*.exe
+            src-tauri/target/${{ env.WIN7_TARGET }}/release/bundle/msi/*.msi
+
+      - name: انتشار در Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/${{ env.WIN7_TARGET }}/release/bundle/nsis/*.exe
+            src-tauri/target/${{ env.WIN7_TARGET }}/release/bundle/msi/*.msi
+          fail_on_unmatched_files: false

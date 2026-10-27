@@ -1,0 +1,285 @@
+/* =============================================================================
+   pump-station.css — استایلِ اختصاصیِ APEX Pump Station Manager
+   رنگ‌ها و فونت‌ها همان رنگ‌های برنامهٔ اصلی است (سرمه‌ای #1e3a5f، فیلدهای سفید
+   با استروکِ نازک). فقط بخش‌های تازهٔ پمپ استیشن این‌جا استایل می‌گیرند.
+   ============================================================================= */
+
+:root { --ps-navy: #1e3a5f; --ps-line: #d8dee9; --ps-soft: #64748b; --ps-pos: #d97706; --ps-neg: #dc2626; }
+
+/* دکمهٔ همبرگر در هدرِ فورم‌ها (سمتِ چپ) */
+.bill-header-bar .ps-hdr-menu { margin-inline-start: auto; width: 38px; height: 38px; }
+.ps-muted { color: var(--ps-soft); font-weight: 500; }
+.ps-diff-pos, .ps-diff-pos b, .ps-diff-pos span { color: var(--ps-pos) !important; }
+.ps-diff-neg, .ps-diff-neg b, .ps-diff-neg span { color: var(--ps-neg) !important; }
+.ps-click { cursor: pointer; }
+
+/* ───────────────────────── تب‌های ذخایر / میتر ───────────────────────── */
+#products-list .ps-tabs-wrapper { position: sticky; top: 60px; z-index: 9; }
+.ps-panel { padding-top: 6px; }
+.ps-panel-actions { display: flex; justify-content: flex-end; gap: 10px; margin: 12px 0 14px; flex-wrap: wrap; }
+.ps-panel-btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; font-size: 14px; font-weight: 700;
+    border-radius: 10px; background: var(--ps-navy); color: #fff; border: none; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(30, 58, 95, .25); font-family: inherit; white-space: nowrap;
+}
+.ps-panel-btn:hover { filter: brightness(1.1); }
+.ps-panel-btn-alt { background: #fff; color: var(--ps-navy); border: 1px solid var(--ps-line); box-shadow: none; }
+body.dark-mode .ps-panel-btn-alt { background: #1e293b; color: #e2e8f0; border-color: rgba(255,255,255,.16); }
+
+/* کارتِ ذخیره / میتر (بر پایهٔ کارتِ اجناسِ قبلی) */
+.ps-tank-card { border-right: 4px solid var(--ps-fuel, var(--ps-navy)); }
+.ps-tank-card .ps-tank-icon { background: color-mix(in srgb, var(--ps-fuel, #1e3a5f) 14%, #fff); color: var(--ps-fuel, var(--ps-navy)); }
+body.dark-mode .ps-tank-card .ps-tank-icon { background: rgba(255,255,255,.08); }
+.ps-tank-card .ps-tank-icon i { font-size: 1.15rem; }
+.ps-tank-card .product-card-name { display: flex; flex-direction: column; gap: 2px; }
+.ps-tank-sub { font-size: .74rem; color: var(--ps-soft); font-weight: 500; display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ps-fuel-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ps-fuel, var(--ps-navy)); vertical-align: middle; }
+.ps-tank-card.ps-low { box-shadow: inset 0 0 0 1px rgba(220, 38, 38, .35); }
+.ps-meter-count span { font-weight: 700; }
+
+/* نوارِ فیصدیِ پُری */
+.ps-fill { position: relative; height: 22px; border-radius: 11px; background: #e2e8f0; overflow: hidden; display: flex; align-items: center; justify-content: center; min-width: 120px; margin: 6px 0; }
+.ps-fill-bar { position: absolute; inset-block: 0; right: 0; background: var(--ps-fuel, var(--ps-navy)); border-radius: 11px; opacity: .85; transition: width .3s; }
+.ps-fill > span:last-child { position: relative; font-size: .74rem; font-weight: 700; color: #0f172a; text-shadow: 0 0 3px rgba(255,255,255,.8); }
+.ps-fill-sm { height: 18px; margin: 0; display: inline-flex; width: 100%; max-width: 220px; }
+.ps-fill-cell { min-width: 140px; }
+body.dark-mode .ps-fill { background: rgba(255,255,255,.12); }
+body.dark-mode .ps-fill > span:last-child { color: #f8fafc; text-shadow: 0 0 3px rgba(0,0,0,.6); }
+
+.ps-empty { text-align: center; padding: 34px 12px; color: var(--ps-soft); display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.ps-empty > i { font-size: 2.2rem; color: #94a3b8; }
+
+/* ───────────────────────── فورمِ ذخیره / میتر / قرائت ───────────────────────── */
+.ps-calc-box { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.ps-calc-box:empty { display: none; }
+.ps-calc-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 12px; border: 1px dashed var(--bill-line, var(--ps-line)); border-radius: 10px; font-size: .9rem; background: var(--bill-card, #fff); }
+.ps-calc-row span { color: var(--ps-soft); }
+.ps-calc-row b { color: var(--ps-navy); font-weight: 800; }
+.ps-calc-row.ps-strong { border-style: solid; border-color: var(--ps-navy); }
+.ps-calc-warn { padding: 8px 12px; border-radius: 10px; background: #fef3c7; color: #92400e; font-size: .86rem; }
+.ps-calc-hint { padding: 8px 12px; border-radius: 10px; background: #eff6ff; color: #1e40af; font-size: .86rem; }
+body.dark-mode .ps-calc-row b { color: #93c5fd; }
+body.dark-mode .ps-calc-warn { background: rgba(245, 158, 11, .15); color: #fcd34d; }
+body.dark-mode .ps-calc-hint { background: rgba(59, 130, 246, .15); color: #bfdbfe; }
+
+.ps-reading-analysis { display: flex; flex-direction: column; gap: 6px; }
+.ps-reading-analysis:empty { display: none; }
+.ps-analysis-title { font-weight: 800; color: var(--ps-navy); margin: 4px 0; }
+body.dark-mode .ps-analysis-title { color: #e2e8f0; }
+.ps-reading-autosale { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; border: 1px solid var(--bill-line, var(--ps-line)); border-radius: 12px; }
+
+/* ───────────────────────── سطرهای کارتیِ بل فروش/خرید ───────────────────────── */
+.ps-items-box { background: transparent !important; border: none !important; overflow: visible !important; }
+.ps-items-box .bill-items-head { border-radius: 22px 22px 0 0; min-height: 40px; padding: 8px 18px; }
+.ps-items-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.ps-items-table colgroup, .ps-items-table thead, .ps-items-table tfoot { display: none; }
+.ps-items-table tbody tr.ps-row { display: grid; grid-template-columns: 54px 1fr; gap: 10px; padding: 10px 0 12px; border-bottom: 1px dashed var(--bill-line, var(--ps-line)); }
+.ps-items-table tbody tr.ps-row:last-child { border-bottom: none; }
+.ps-items-table tbody tr.ps-row { height: auto !important; max-height: none !important; overflow: visible !important; }
+.ps-items-table tbody tr.ps-row > td { border: none !important; padding: 0 !important; background: transparent !important; display: block; height: auto !important; max-height: none !important; overflow: visible !important; white-space: normal !important; width: auto !important; }
+.ps-num-cell { display: flex !important; flex-direction: column; align-items: center; gap: 8px; padding-top: 6px !important; }
+.ps-num { width: 42px; height: 42px; border-radius: 50%; background: var(--ps-navy); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.15rem; font-weight: 700; }
+.ps-row-add, .ps-row-del { width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: .95rem; }
+.ps-row-add { background: var(--ps-navy); color: #fff; }
+.ps-row-del { background: transparent; color: #dc2626; border: 1px solid rgba(220,38,38,.35); width: 28px; height: 28px; font-size: .75rem; }
+/* «+» فقط روی آخرین سطر، «حذف» فقط وقتی بیش از یک سطر هست */
+.ps-items-table tbody tr.ps-row:not(:last-child) .ps-row-add { display: none; }
+.ps-items-table tbody.ps-single .ps-row-del { display: none; }
+
+.ps-grid { display: grid; grid-template-columns: 1.75fr 1fr 1fr 1fr; gap: 12px 14px; }
+.ps-f {
+    background: var(--bill-card, #fff); border: 1px solid var(--bill-line, var(--ps-line)); border-radius: 12px;
+    min-height: 52px; padding: 0 12px; display: flex; align-items: center; gap: 9px; min-width: 0; position: relative; margin: 0;
+}
+.ps-f > i { color: var(--ps-navy); font-size: 1.05rem; flex: 0 0 auto; width: 20px; text-align: center; }
+.ps-f input, .ps-f select {
+    width: 100%; border: none; background: transparent; padding: 13px 2px; font-size: .98rem;
+    color: var(--text-main, #0f172a); outline: none; min-width: 0; font-family: inherit;
+}
+.ps-f select { cursor: pointer; }
+.ps-f input::placeholder { color: #94a3b8; }
+.ps-f:focus-within { border-color: var(--ps-navy); box-shadow: 0 0 0 2px rgba(30,58,95,.12); }
+.ps-f-ro { background: #f8fafc; }
+.ps-f-ro .ps-ph { color: #94a3b8; font-size: .9rem; white-space: nowrap; }
+.ps-f-ro .ps-total-val, .ps-f-ro .ps-liters { margin-inline-start: auto; font-weight: 800; color: var(--ps-navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ps-f-tank { grid-column: 1 / -1; }
+.ps-grid-purchase .ps-f-tank { grid-column: auto; }
+.ps-row-hint { font-size: .8rem; color: #b45309; margin-top: 6px; min-height: 0; }
+.ps-row-hint:empty { display: none; }
+body.dark-mode .ps-f-ro { background: rgba(255,255,255,.04); }
+body.dark-mode .ps-f > i { color: #93c5fd; }
+body.dark-mode .ps-f input, body.dark-mode .ps-f select { color: #f1f5f9; }
+body.dark-mode .ps-f select option { background: #1e293b; color: #f1f5f9; }
+body.dark-mode .ps-f-ro .ps-total-val, body.dark-mode .ps-f-ro .ps-liters { color: #e2e8f0; }
+body.dark-mode .ps-row-hint { color: #fcd34d; }
+
+/* نوارِ عملیاتِ بل: پنلِ «مصرف انتقال» هم‌سبکِ پنلِ تخفیف */
+#sales-transport-panel .bill-disc-field { min-width: 140px; }
+
+/* ⊕ افزودن به پرداختی */
+.ps-addpay-pop {
+    position: absolute; z-index: 10050; background: #fff; border: 1px solid var(--ps-line); border-radius: 12px; padding: 12px;
+    box-shadow: 0 10px 28px rgba(15,23,42,.18); width: 230px; display: flex; flex-direction: column; gap: 10px;
+}
+.ps-addpay-title { font-weight: 800; color: var(--ps-navy); font-size: .92rem; }
+.ps-addpay-pop input { border: 1px solid var(--ps-line); border-radius: 10px; padding: 10px; font-size: 1rem; font-family: inherit; outline: none; }
+.ps-addpay-pop input:focus { border-color: var(--ps-navy); }
+.ps-addpay-actions { display: flex; gap: 8px; }
+.ps-addpay-actions button { flex: 1; padding: 8px 10px !important; font-size: .88rem !important; }
+body.dark-mode .ps-addpay-pop { background: #1e293b; border-color: rgba(255,255,255,.16); }
+body.dark-mode .ps-addpay-pop input { background: #0f172a; color: #f1f5f9; border-color: rgba(255,255,255,.16); }
+body.dark-mode .ps-addpay-title { color: #e2e8f0; }
+
+/* فورم‌های برگشت: نوع تیل زیرِ نامِ ذخیره */
+.ps-ret-hint { display: block; font-size: .76rem; color: var(--ps-soft); margin-top: 3px; }
+
+/* ───────────────────────── مودال ───────────────────────── */
+.ps-modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); z-index: 10040; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.ps-modal { background: #fff; border-radius: 16px; width: 100%; max-width: 560px; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.25); direction: rtl; }
+.ps-modal-wide { max-width: 820px; }
+.ps-modal-head { background: var(--ps-navy); color: #fff; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; font-weight: 800; font-size: 1.02rem; gap: 10px; }
+.ps-modal-head span i { margin-left: 6px; }
+.ps-modal-x { background: rgba(255,255,255,.14); color: #fff; border: none; border-radius: 8px; width: 32px; height: 32px; cursor: pointer; }
+.ps-modal-body { padding: 16px 18px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.ps-modal-foot { padding: 12px 18px; display: flex; gap: 10px; justify-content: flex-start; border-top: 1px solid #e2e8f0; flex-wrap: wrap; }
+.ps-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ps-lbl { display: flex; flex-direction: column; gap: 6px; font-size: .86rem; font-weight: 700; color: var(--ps-navy); }
+.ps-lbl input, .ps-lbl select { border: 1px solid var(--ps-line); border-radius: 10px; padding: 11px 10px; font-size: .95rem; font-family: inherit; background: #fff; color: #0f172a; outline: none; min-width: 0; }
+.ps-lbl input:focus, .ps-lbl select:focus { border-color: var(--ps-navy); }
+.ps-detail { display: flex; flex-direction: column; gap: 6px; }
+body.dark-mode .ps-modal { background: #0f172a; color: #e2e8f0; }
+body.dark-mode .ps-modal-foot { border-color: rgba(255,255,255,.12); }
+body.dark-mode .ps-lbl { color: #cbd5e1; }
+body.dark-mode .ps-lbl input, body.dark-mode .ps-lbl select { background: #1e293b; color: #f1f5f9; border-color: rgba(255,255,255,.16); }
+
+/* ───────────────────────── لیستِ قرائت میتر ───────────────────────── */
+.ps-readings-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.ps-readings-summary:empty { display: none; }
+.ps-sum-chip { display: inline-flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; background: #fff; border: 1px solid var(--ps-line); min-width: 120px; }
+.ps-sum-chip span { font-size: .74rem; color: var(--ps-soft); }
+.ps-sum-chip b { font-size: .95rem; color: var(--ps-navy); }
+.ps-warn-chip { border-color: #f59e0b; }
+body.dark-mode .ps-sum-chip { background: #1e293b; border-color: rgba(255,255,255,.14); }
+body.dark-mode .ps-sum-chip b { color: #e2e8f0; }
+#meter-readings-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+#meter-readings-table td { padding: 0 !important; border: none !important; background: transparent !important; }
+.ps-reading-card {
+    display: grid; grid-template-columns: 1.6fr repeat(7, 1fr) 40px; gap: 8px; align-items: center;
+    background: #fff; border: 1px solid var(--ps-line); border-radius: 12px; padding: 10px 14px; cursor: pointer;
+    border-right: 4px solid var(--ps-navy);
+}
+.ps-reading-card:hover { box-shadow: 0 4px 14px rgba(15,23,42,.08); }
+.ps-rc-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ps-rc-main > i { font-size: 1.2rem; color: var(--ps-navy); }
+.ps-rc-main b { display: block; color: #0f172a; }
+.ps-rc-main small { color: var(--ps-soft); font-size: .76rem; }
+.ps-rc-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ps-rc-cell span { font-size: .72rem; color: var(--ps-soft); }
+.ps-rc-cell b { font-size: .88rem; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ps-rc-actions { display: flex; justify-content: center; }
+body.dark-mode .ps-reading-card { background: #1e293b; border-color: rgba(255,255,255,.14); }
+body.dark-mode .ps-rc-main b, body.dark-mode .ps-rc-cell b { color: #f1f5f9; }
+
+/* ───────────────────────── داشبورد ───────────────────────── */
+#dashboard .nd-meters .nd-meters-head { cursor: pointer; user-select: none; }
+#dashboard .nd-meters .nd-meters-chevron { color: var(--nd-text-soft, #64748b); transition: transform .2s; }
+#dashboard .nd-meters.collapsed .nd-meters-chevron { transform: rotate(90deg); }
+#dashboard .nd-meters.collapsed .nd-meters-body { display: none !important; }
+#dashboard .nd-meters .nd-meters-body { overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+#dashboard .nd-meters-table th, #dashboard .nd-meters-table td { width: auto !important; }
+#dashboard .nd-meters-table td.nd-empty { color: var(--nd-text-soft, #64748b); padding: 16px 0 !important; white-space: normal; }
+#dashboard .nd-meters-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+#dashboard .nd-meters-summary:empty { display: none; }
+#dashboard .nd-meters-summary .ps-sum-chip { min-width: 0; padding: 5px 9px; }
+#dashboard .nd-meters-summary .ps-sum-chip span { font-size: .66rem; }
+#dashboard .nd-meters-summary .ps-sum-chip b { font-size: .8rem; }
+#dashboard .nd-meters-actions { display: flex; justify-content: space-between; gap: 8px; }
+#dashboard .ps-stock-chip { border-inline-start: 3px solid var(--ps-fuel, var(--ps-navy)); }
+@media (min-width: 900px) {
+    #dashboard .nd-grid.nd-fit .nd-meters { flex: 1 1 0; }
+    #dashboard .nd-grid.nd-fit .nd-meters > .nd-card-body { overflow: auto; }
+}
+
+/* ───────────────────────── گزارشِ تیل و میتر ───────────────────────── */
+.ps-rp-card .dash-card-head { gap: 8px; }
+.ps-rp-actions { display: inline-flex; gap: 6px; margin-inline-start: auto; }
+.ps-rp-table-wrap { overflow-x: auto; margin: 8px 0 14px; }
+.ps-rp-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+.ps-rp-table th { background: var(--ps-navy); color: #fff; padding: 8px; font-weight: 700; white-space: nowrap; }
+.ps-rp-table td { padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap; }
+.ps-rp-table td:first-child { text-align: right; }
+body.dark-mode .ps-rp-table td { border-color: rgba(255,255,255,.1); }
+
+/* ───────────────────────── ریسپانسیو ───────────────────────── */
+@media (max-width: 900px) {
+    .ps-grid { grid-template-columns: 1fr 1fr; }
+    .ps-f-fuel, .ps-f-price { grid-column: 1 / -1; }
+    .ps-grid-purchase .ps-f-tank { grid-column: 1 / -1; }
+    .ps-items-table tbody tr.ps-row { grid-template-columns: 44px 1fr; }
+    .ps-num { width: 34px; height: 34px; font-size: 1rem; }
+    .ps-reading-card { grid-template-columns: 1fr 1fr 1fr; }
+    .ps-rc-main { grid-column: 1 / -1; }
+    .ps-rc-actions { grid-column: 3; justify-content: flex-end; }
+    .ps-form-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 520px) {
+    .ps-grid { gap: 8px; }
+    .ps-f { min-height: 46px; padding: 0 9px; }
+    .ps-f input, .ps-f select { padding: 10px 2px; font-size: .92rem; }
+    .ps-panel-actions { justify-content: stretch; }
+    .ps-panel-btn { flex: 1; justify-content: center; }
+}
+
+/* ───────────────────────── لیستِ قرائت میتر — هم‌سبکِ «ورودی و خروجی ذخیره» ───────────────────────── */
+#meter-readings-list .list-header-filter {
+    background: #1e3a5f !important; border-bottom: none !important; padding: 14px 30px;
+    margin-left: -30px !important; margin-right: -30px !important; gap: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+}
+#meter-readings-list .section-title-in-filter { color: #fff; font-size: 1.15rem; font-weight: 800; }
+#meter-readings-list .section-title-in-filter .btn-back-header { background: rgba(255,255,255,.14) !important; border: none !important; box-shadow: none !important; }
+#meter-readings-list .section-title-in-filter .btn-back-header i { color: #fff !important; }
+#meter-readings-list .filter-icon-btn {
+    background: rgba(255,255,255,.14); border: none; color: #fff; width: 38px; height: 38px; border-radius: 9px; cursor: pointer; font-size: 17px;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+#meter-readings-list .filter-icon-btn:hover { background: rgba(255,255,255,.26); }
+#meter-readings-list #global-search-meter-readings { background: #fff; border: 1px solid #fff; color: #1e293b; }
+#meter-readings-list .table-container.sales-cards-container {
+    height: auto !important; max-height: none !important; overflow: visible !important; border: none !important;
+    background: transparent !important; box-shadow: none !important; padding: 2px 2px 160px 2px !important; margin-top: 4px !important;
+}
+#meter-readings-list #meter-readings-table, #meter-readings-list #meter-readings-table tbody { display: block; width: 100% !important; }
+#meter-readings-list #meter-readings-table tr { display: block; width: 100%; margin-bottom: 8px; }
+#meter-readings-list #meter-readings-table tr[style*="display: none"] { display: none !important; }
+#meter-readings-list #meter-readings-table td { display: block; width: 100%; }
+@media (max-width: 768px) {
+    #meter-readings-list .list-header-filter { padding-left: 16px !important; padding-right: 16px !important; margin-left: -16px !important; margin-right: -16px !important; column-gap: 10px !important; }
+}
+
+/* دکمه‌های مودال */
+.ps-modal-foot .ps-panel-btn { padding: 9px 16px; }
+/* کارتِ گزارشِ تیل و میتر عریض‌تر */
+.ps-rp-card { max-width: 1100px !important; width: 100% !important; margin-left: auto; margin-right: auto; }
+
+/* ───────────────────────── موبایل: ترتیبِ کارت‌های داشبورد ───────────────────────── */
+@media (max-width: 900px) {
+    .ps-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+@media (max-width: 768px) {
+    #dashboard .nd-meters { order: 5; flex: 0 0 auto !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
+    #dashboard .nd-meters .nd-meters-body { max-height: none; }
+    #dashboard .nd-meters-table { font-size: .7rem; }
+}
+
+/* سطرِ کارتیِ بل از عرضِ صفحه بیرون نزند (متنِ بلندِ «انتخاب ذخیره») */
+.ps-items-table { table-layout: fixed; max-width: 100%; }
+.ps-items-table tbody tr.ps-row { grid-template-columns: 54px minmax(0, 1fr); }
+.ps-items-table tbody tr.ps-row > td.ps-fields-cell { min-width: 0 !important; max-width: 100% !important; }
+.ps-f select { text-overflow: ellipsis; }
+@media (max-width: 900px) {
+    .ps-items-table tbody tr.ps-row { grid-template-columns: 44px minmax(0, 1fr); }
+}
+/* mobile-responsive.css به جدول‌های بل min-width:560px می‌دهد — برای سطرهای کارتیِ پمپ لازم نیست */
+#sales-items-table.ps-items-table,
+#purchase-items-table.ps-items-table { min-width: 0 !important; width: 100% !important; display: block !important; }
+.ps-items-table > tbody { display: block !important; width: 100% !important; }
