@@ -36,7 +36,6 @@ $WebFiles = @(
     'pump-station.css',
     # JS برنامه
     'apex-ns.js',
-    'jouya-store.js',
     'jouya-google-config.js',
     'pump-station.js',
     'tauri-bridge.js',

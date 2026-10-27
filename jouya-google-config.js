@@ -2,9 +2,9 @@
 /**
  * jouya-google-config.js — شناسهٔ کلاینتِ وبِ گوگل
  * ============================================================================
- * این فایل فقط برای نسخه‌هایی لازم است که ورودِ نیتیوِ گوگل ندارند:
- *    • نسخهٔ وب و وبِ موبایل
- *    • اپلیکیشنِ اندروید (Capacitor)
+ * این فایل برای نسخه‌هایی لازم است که ورودِ نیتیوِ گوگل ندارند:
+ *    • نسخهٔ وب و وبِ موبایل  (پنجرهٔ ورودِ گوگل؛ اگر مسدود شد → صفحهٔ oauth-callback.html)
+ *    • اپلیکیشنِ اندروید (Capacitor) — ورود در مرورگرِ سیستم و بازگشت با apexps://oauth
  *
  * نسخهٔ ویندوز (Tauri) به این فایل نیازی ندارد — ورودِ گوگل آن‌جا از راهِ
  * دستورِ نیتیوِ hb_google_signin انجام می‌شود (در tauri-bridge.js وصل شده).
@@ -26,8 +26,14 @@
  */
 (function () {
     'use strict';
-    // ⚠ شناسهٔ کلاینتِ «Web application»ِ پروژهٔ گوگلِ همین برنامه (نه APEX Store Manager)
+    // ⚠ شناسهٔ کلاینتِ «Web application»ِ پروژهٔ گوگلِ همین برنامه (نه APEX Store Manager).
+    //   لازم نیست دستی پر شود: ورک‌فلوهای گیت‌هاب هنگامِ بیلد آن را از سیکرتِ
+    //   APEXPS_GOOGLE_WEB_CLIENT_ID می‌گذارند. (اگر دستی بگذارید، همان استفاده می‌شود.)
     var WEB_CLIENT_ID = '';   // ← شناسه را این‌جا بگذارید
+
+    // نشانیِ صفحهٔ بازگشتِ ورود (برای اپِ اندروید لازم است؛ در وب خودکار تشخیص داده می‌شود).
+    //   ورک‌فلو آن را خودکار می‌سازد:  https://<OWNER>.github.io/<REPO>/oauth-callback.html
+    var OAUTH_REDIRECT_URL = '';
 
     try {
         if (WEB_CLIENT_ID) {
@@ -38,5 +44,6 @@
             try { saved = localStorage.getItem('jouya_google_web_client_id'); } catch (e) {}
             if (saved) window.JOUYA_GOOGLE_WEB_CLIENT_ID = String(saved);
         }
+        if (OAUTH_REDIRECT_URL) window.APEXPS_OAUTH_REDIRECT = OAUTH_REDIRECT_URL;
     } catch (e) {}
 })();

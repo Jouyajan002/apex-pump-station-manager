@@ -125,6 +125,9 @@ self.addEventListener('fetch', function (event) {
   // درخواست‌های ناوبری (باز کردن اپ): «کش‌محور» تا اپ همیشه — آنلاین یا آفلاین — فوری و
   // بدونِ وابستگی به شبکه باز شود (مثلِ یک اپلیکیشنِ نصب‌شده). نسخهٔ تازه در پس‌زمینه گرفته
   // و برای دفعهٔ بعد کش می‌شود. این رفعِ «گاهی بدونِ اینترنت باز نمی‌شود» است.
+  // صفحهٔ بازگشتِ ورودِ گوگل همیشه مستقیم از شبکه (نباید با index.htmlِ کش‌شده عوض شود)
+  if (/\/oauth-callback\.html$/i.test(url.pathname)) return;
+
   if (req.mode === 'navigate') {
     event.respondWith(
       caches.open(CACHE).then(function (own) { return own.match('./index.html'); }).then(function (cached) {

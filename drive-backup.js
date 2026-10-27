@@ -94,6 +94,13 @@
         // مسیرِ درونِ‌مرورگر (Tauri/ویندوز و وب): بدونِ نیاز به کدِ نیتیو، با Google Identity
         // Services و یک «شناسهٔ کلاینتِ وب». این‌طور ورودِ گوگل در ویندوز/Tauri کار می‌کند و
         // دیگر خطای «فقط در Electron» دیده نمی‌شود. (توکن یک‌ساعته است؛ برای پشتیبانِ دستی کافی است.)
+        // اپِ اندروید (Capacitor): گوگل ورود داخلِ WebView را مسدود می‌کند (disallowed_useragent)،
+        // پس ورود در مرورگرِ سیستم (Custom Tab) انجام و توکن با لینکِ apexps://oauth برگردانده می‌شود.
+        if (isCapacitorNative()) {
+            const appToken = await androidBrowserSignIn();
+            if (appToken) return appToken;
+        }
+
         const webToken = await gisWebSignIn();
         if (webToken) return webToken;
 
@@ -135,19 +142,130 @@
             } catch (e) { reject(e); }
         });
     }
+    var GOOGLE_SCOPES = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
+    function isCapacitorNative() {
+        try { return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()); }
+        catch (e) { return false; }
+    }
+    // نشانیِ صفحهٔ بازگشتِ ورود (oauth-callback.html) — باید در «Authorized redirect URIs»ِ کلاینتِ وب ثبت شود
+    function _getRedirectUrl() {
+        try {
+            if (window.APEXPS_OAUTH_REDIRECT) return String(window.APEXPS_OAUTH_REDIRECT);
+            var v = localStorage.getItem('apexps_oauth_redirect');
+            if (v) return String(v);
+            if ((location.protocol === 'https:' || location.hostname === 'localhost') && !isCapacitorNative()) {
+                return new URL('oauth-callback.html', location.href).href.split('#')[0].split('?')[0];
+            }
+        } catch (e) {}
+        return '';
+    }
+    function _randState(prefix) {
+        var a = new Uint8Array(12);
+        try { crypto.getRandomValues(a); } catch (e) { for (var i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 256); }
+        return prefix + '.' + Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+    }
+    function _authUrl(clientId, redirect, state) {
+        var q = new URLSearchParams({
+            client_id: clientId, redirect_uri: redirect, response_type: 'token', scope: GOOGLE_SCOPES,
+            state: state, include_granted_scopes: 'true', prompt: 'select_account'
+        });
+        return 'https://accounts.google.com/o/oauth2/v2/auth?' + q.toString();
+    }
+    // ورودِ اندروید: مرورگرِ سیستم + بازگشت با apexps://oauth?access_token=…
+    async function androidBrowserSignIn() {
+        var clientId = _getWebClientId();
+        var redirect = _getRedirectUrl();
+        if (!clientId || !redirect) {
+            throw new Error('برای ورود به گوگل در نسخهٔ اندروید، «شناسهٔ کلاینتِ وب» و «نشانیِ صفحهٔ بازگشت» تنظیم نشده است.\n' +
+                'این دو مقدار هنگامِ ساختِ APK از سیکرتِ APEXPS_GOOGLE_WEB_CLIENT_ID و نشانیِ GitHub Pagesِ مخزن پر می‌شوند (راهنمای README).');
+        }
+        var P = (window.Capacitor && window.Capacitor.Plugins) || {};
+        var Browser = P.Browser, App = P.App;
+        if (!Browser || !App) throw new Error('افزونه‌های Browser/App در این نسخهٔ اندروید در دسترس نیست.');
+        var state = _randState('app');
+        var token = await new Promise(function (resolve, reject) {
+            var done = false, hUrl = null, hFin = null;
+            var timer = setTimeout(function () { finish(new Error('مهلتِ ورود به گوگل تمام شد. دوباره تلاش کنید.')); }, 5 * 60 * 1000);
+            function finish(err, tok) {
+                if (done) return; done = true; clearTimeout(timer);
+                try { if (hUrl && hUrl.remove) hUrl.remove(); } catch (e) {}
+                try { if (hFin && hFin.remove) hFin.remove(); } catch (e) {}
+                try { Browser.close(); } catch (e) {}
+                if (err) reject(err); else resolve(tok);
+            }
+            Promise.resolve(App.addListener('appUrlOpen', function (ev) {
+                var u = String((ev && ev.url) || '');
+                if (u.indexOf('apexps://oauth') !== 0) return;
+                var qs;
+                try { qs = new URL(u.replace(/^apexps:\/\/oauth/, 'https://apexps.local/oauth')).searchParams; } catch (e) { return finish(new Error('پاسخِ ورود نامعتبر بود.')); }
+                if (qs.get('state') !== state) return finish(new Error('پاسخِ ورود با درخواست مطابقت نداشت (state).'));
+                if (qs.get('error')) return finish(new Error('ورود به گوگل انجام نشد: ' + qs.get('error')));
+                var at = qs.get('access_token');
+                if (!at) return finish(new Error('توکنی از گوگل دریافت نشد.'));
+                finish(null, { access_token: at, expires_in: parseInt(qs.get('expires_in'), 10) || 3600, savedAt: Date.now() });
+            })).then(function (h) { hUrl = h; }).catch(function () {});
+            try {
+                Promise.resolve(Browser.addListener('browserFinished', function () {
+                    // اگر کاربر مرورگر را بدونِ ورود بست
+                    setTimeout(function () { finish(new Error('ورود به گوگل لغو شد.')); }, 2500);
+                })).then(function (h) { hFin = h; }).catch(function () {});
+            } catch (e) {}
+            Promise.resolve(Browser.open({ url: _authUrl(clientId, redirect, state) })).catch(function (e) { finish(e); });
+        });
+        TokenStore.save(token);
+        await _afterWebToken(token);
+        return token;
+    }
+    // وب/وبِ موبایل وقتی پنجرهٔ ورود (popup) مسدود شد: رفتن به صفحهٔ گوگل و برگشت به همین برنامه
+    function webRedirectSignIn(clientId) {
+        var redirect = _getRedirectUrl();
+        if (!redirect) throw new Error('نشانیِ صفحهٔ بازگشتِ ورود (oauth-callback.html) مشخص نیست.');
+        var state = _randState('web');
+        try { localStorage.setItem('apexps_oauth_state', state); } catch (e) {}
+        location.href = _authUrl(clientId, redirect, state);
+        return new Promise(function () {});   // صفحه عوض می‌شود
+    }
+    async function _afterWebToken(token) {
+        try {
+            var r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                headers: { 'Authorization': 'Bearer ' + token.access_token }
+            });
+            if (r.ok) {
+                var info = await r.json();
+                if (info && info.email) {
+                    localStorage.setItem('jouya_gdrive_email', info.email);
+                    localStorage.setItem('jouya_gdrive_name', info.name || '');
+                }
+                window.dispatchEvent(new CustomEvent('gdrive-signed-in', {
+                    detail: { email: info && info.email, token: token }
+                }));
+            }
+        } catch (e) {}
+    }
     async function gisWebSignIn() {
         var clientId = _getWebClientId();
         if (!clientId) return null;   // تنظیم نشده → مسیرِ بعدی/پیامِ راهنما
-        await _loadGis();
+        try { await _loadGis(); }
+        catch (e) { return webRedirectSignIn(clientId); }   // اسکریپتِ گوگل بارگذاری نشد → مسیرِ بازگشتی
         var token = await new Promise(function (resolve, reject) {
             try {
                 var tc = window.google.accounts.oauth2.initTokenClient({
                     client_id: clientId,
-                    scope: 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+                    scope: GOOGLE_SCOPES,
                     callback: function (resp) {
                         if (resp && resp.access_token) {
                             resolve({ access_token: resp.access_token, expires_in: resp.expires_in || 3600, savedAt: Date.now() });
                         } else { reject(new Error((resp && resp.error) || 'ورود ناموفق')); }
+                    },
+                    // پنجرهٔ ورود باز نشد (مسدودکنندهٔ popup، به‌ویژه در موبایل) → مسیرِ بازگشتی
+                    error_callback: function (err) {
+                        if (err && err.type === 'popup_failed_to_open') {
+                            try { webRedirectSignIn(clientId); } catch (e) { reject(e); }
+                        } else if (err && err.type === 'popup_closed') {
+                            reject(new Error('پنجرهٔ ورودِ گوگل بسته شد.'));
+                        } else {
+                            reject(new Error((err && (err.message || err.type)) || 'ورود ناموفق'));
+                        }
                     }
                 });
                 tc.requestAccessToken();
@@ -817,9 +935,38 @@
 
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+    // بازگشت از صفحهٔ ورودِ گوگل (مسیرِ redirectِ وب): oauth-callback.html توکن را ذخیره کرده
+    // و با ?gdrive=ok به این صفحه برگشته است.
+    function _handleOAuthReturn() {
+        try {
+            var qs = new URLSearchParams(location.search);
+            var g = qs.get('gdrive');
+            if (!g) return;
+            qs.delete('gdrive');
+            var clean = location.pathname + (qs.toString() ? '?' + qs.toString() : '') + location.hash;
+            try { history.replaceState(null, '', clean); } catch (e) {}
+            setTimeout(function () {
+                if (g === 'ok' && TokenStore.isValid()) {
+                    _afterWebToken(TokenStore.get()).then(function () {
+                        try { openDriveModal(); showGDriveAlert('success', '✓ با موفقیت به Google Drive متصل شدید.'); } catch (e) {}
+                    });
+                } else {
+                    try { openDriveModal(); showGDriveAlert('error', 'ورود به گوگل انجام نشد یا لغو شد.'); } catch (e) {}
+                }
+            }, 1200);
+        } catch (e) {}
+    }
+
     function bootstrap() {
         window.DriveBackup = DriveBackup;
         setupAutoBackup();
+        _handleOAuthReturn();
+        // وب: اسکریپتِ گوگل از قبل بارگذاری شود تا پنجرهٔ ورود بلافاصله پس از کلیک باز شود
+        try {
+            if (!hasNativeGoogleSignIn() && !isTauriNative() && !isCapacitorNative() && _getWebClientId()) {
+                setTimeout(function () { _loadGis().catch(function () {}); }, 2500);
+            }
+        } catch (e) {}
         console.log('✅ DriveBackup module loaded (Desktop OAuth)');
     }
 

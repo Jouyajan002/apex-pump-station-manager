@@ -92,7 +92,7 @@ $Dist = Join-Path $Root 'src-tauri\dist-web'
 $WebFiles = @(
   'index.html',
   'style.css','auth-system.css','dashboard-store-info-fix.css','mobile-responsive.css','pump-station.css',
-  'apex-ns.js','jouya-store.js','jouya-google-config.js','pump-station.js',
+  'apex-ns.js','jouya-google-config.js','pump-station.js',
   'tauri-bridge.js','database.js','script.js','persian-date-utils.js',
   'auth-system.js','drive-backup.js','instant-update-fix.js','delivery-list.js',
   'currency-system.js','sync-config.js','sync-layer.js','auth-cloud.js',
