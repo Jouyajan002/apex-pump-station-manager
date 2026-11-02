@@ -6,6 +6,7 @@
    است، بالا بُرده (hoist) می‌شود؛ پس این‌جا در دسترس است.
    ══════════════════════════════════════════════════════════════════════════ */
 try { __hbInstallStorageGuard(); } catch (e) {}
+try { _apexDigitApply(); } catch (e) {}   // شکلِ ارقام (فارسی/انگلیسی) — پیش از نخستین رندر
 try { __hbInstallRenderCoalescer(); } catch (e) {}
 
 /* ==========================================================================
@@ -1030,6 +1031,31 @@ if (typeof window !== 'undefined') window._saleCostSnapshot = _saleCostSnapshot;
 // ========================================================================
 var _fifoProfitCache = { sig: null, maps: null, at: 0 };
 
+// ── سهمِ هر سطر از «تخفیفِ کلیِ بل» ─────────────────────────────────────────
+//  تخفیفِ کلی = مجموعِ تخفیف منهای تخفیفِ سطرها. به نسبتِ وزنِ هر سطر
+//  (تعداد × قیمت − تخفیفِ سطر + ضایعات) میان سطرها تقسیم می‌شود تا از مفاد (فروش) و
+//  از بهای تمام‌شده (خرید) کم شود. خروجی: { اندیسِ قلم: سهم به ارزِ سند }.
+function _fifoBillDiscShares(tx) {
+    var out = {};
+    try {
+        if (!tx || !Array.isArray(tx.items)) return out;
+        var lineDisc = 0, wsum = 0, ws = [];
+        tx.items.forEach(function (it, i) {
+            if (!it || it.isWastage) return;
+            var q = parseFloat(it.quantity) || 0, p = parseFloat(it.price) || 0, d = parseFloat(it.discount) || 0;
+            lineDisc += d;
+            var w = q * p - d + (parseFloat(it.wastageAmount) || 0);
+            if (w > 0) { ws.push([i, w]); wsum += w; }
+        });
+        var total = parseFloat(tx.totalDiscount != null ? tx.totalDiscount : (tx.discount || 0)) || 0;
+        var overall = total - lineDisc;
+        if (!(overall > 1e-9) || !(wsum > 0)) return out;
+        ws.forEach(function (x) { out[x[0]] = overall * x[1] / wsum; });
+    } catch (e) {}
+    return out;
+}
+if (typeof window !== 'undefined') window._fifoBillDiscShares = _fifoBillDiscShares;
+
 function _fifoItemBase(it) {
     var qty = parseFloat(it.quantity) || 0;
     var price = parseFloat(it.price) || 0;
@@ -1172,12 +1198,13 @@ function _computeFifoProfitMaps() {
                 if (_shipTot > 0 && typeof _computeShippingDistribution === 'function' && Array.isArray(tx.items)) {
                     try { _shipDist = _computeShippingDistribution(tx.items, _shipTot, tx.shippingMethod || 'value'); } catch (e) { _shipDist = null; }
                 }
+                var _pDisc = _fifoBillDiscShares(tx);   // تخفیفِ کلیِ بلِ خرید → بهای تمام‌شده کم می‌شود
                 tx.items.forEach(function (it, _pi) {
                     if (!it || it.isService || it.productId == null) return;
                     var b = _fifoItemBase(it);
                     if (b.baseQty <= 0) return;
                     var _shipUnit = (_shipDist && _shipDist[_pi] && _shipDist[_pi].shippingUnitCost != null) ? (parseFloat(_shipDist[_pi].shippingUnitCost) || 0) : 0;
-                    var _landedBase = b.perBase + _shipUnit;
+                    var _landedBase = b.perBase + _shipUnit - (_pDisc[_pi] ? (_pDisc[_pi] / b.baseQty) : 0);
                     var _bcost = {}; _bcost[cur] = _landedBase;   // هزینهٔ سریِ خرید به ارزِ همان بل
                     ensure(it.productId).push({
                         ts: ts, kind: 0, seq: seq, qty: b.baseQty,
@@ -1187,6 +1214,7 @@ function _computeFifoProfitMaps() {
                     });
                 });
             } else if (tx.type === 'فروش') {
+                var _sDisc = _fifoBillDiscShares(tx);   // سهمِ هر سطر از تخفیفِ کلیِ بلِ فروش
                 tx.items.forEach(function (it, idx) {
                     if (!it || it.isService || it.productId == null) return;
                     var b = _fifoItemBase(it);
@@ -1211,7 +1239,7 @@ function _computeFifoProfitMaps() {
                         wastageRev: _wRev,
                         saleId: tx.id, itemIndex: idx, currency: cur,
                         perBase: _spMap,
-                        discount: parseFloat(it.discount) || 0,
+                        discount: (parseFloat(it.discount) || 0) + (_sDisc[idx] || 0),
                         costAcc: 0,           // بهای تجمیعی به «ارزِ فروش» (سازگارِ کدِ فعلی)
                         costAccBase: 0,       // بهای تجمیعی به «ارزِ مرجع» (محاسبهٔ صحیح)
                         estAcc: false,        // آیا در انباشتِ بها تخمینی رخ داد؟
@@ -1500,9 +1528,10 @@ function _computeFifoProfitMaps() {
         try {
             txs.forEach(function (tx) {
                 if (!tx || tx.type !== 'فروش' || !Array.isArray(tx.items)) return;
+                var _vDisc = _fifoBillDiscShares(tx);
                 tx.items.forEach(function (it, idx) {
                     if (!it || !it.isService || it.isWastage) return;
-                    var pr = _svcItemProfit(it);
+                    var pr = _svcItemProfit(it) - (_vDisc[idx] || 0);
                     if (!pr) return;
                     var _k = tx.id + '|' + idx;
                     itemMap[_k] = _round((itemMap[_k] || 0) + pr);
@@ -1705,7 +1734,8 @@ function computeSaleProfit(tx, products) {
     var p = 0;
     var hasAnyComputed = false;
     var anySnapshot = false;
-    tx.items.forEach(function (it) {
+    var _cDisc = _fifoBillDiscShares(tx);   // سهمِ تخفیفِ کلی از مفادِ هر سطر کم می‌شود
+    tx.items.forEach(function (it, _ci) {
         if (it.isService) return;
         // اولویت با «قیمت خریدِ لحظهٔ فروش» که هنگام فروش روی قلم ذخیره شده است؛ تا اگر بعداً
         // همان ذخیره به قیمت متفاوت خریداری شود، مفادِ فروش‌های قبلی تغییر نکند. این مقدار فقط
@@ -1745,7 +1775,7 @@ function computeSaleProfit(tx, products) {
         if (!purchasePrice) {
             purchasePrice = _fallbackCostInCurrency(it, prod, txCur, tx);
         }
-        p += ((parseFloat(it.price) || 0) - purchasePrice) * (parseFloat(it.quantity) || 0) - (parseFloat(it.discount) || 0);
+        p += ((parseFloat(it.price) || 0) - purchasePrice) * (parseFloat(it.quantity) || 0) - (parseFloat(it.discount) || 0) - (_cDisc[_ci] || 0);
     });
     // اگر هیچ ذخیره‌ای پیدا نشد (مثلاً همه حذف شده‌اند)، از مقدار ذخیره‌شده استفاده کن
     if (!hasAnyComputed) return (typeof tx.profit === 'number' && !isNaN(tx.profit)) ? tx.profit : (parseFloat(tx.profit) || 0);
@@ -2467,8 +2497,8 @@ function loadComparisonChart(todayIncome, todaySales, todayExpenses, yesterdayIn
                 tooltip: { callbacks: { label: (ctx) => formatCurrencyAFN(ctx.raw) } }
             },
             scales: {
-                y: { beginAtZero: true, ticks: { callback: (v) => formatCurrencyAFN(v), font: { family: 'Vazirmatn', size: 10 } } },
-                x: { ticks: { font: { family: 'Vazirmatn' } } }
+                y: { beginAtZero: true, ticks: { callback: (v) => formatCurrencyAFN(v), font: { family: 'Estedad, Vazirmatn, Tahoma, sans-serif', size: 10 } } },
+                x: { ticks: { font: { family: 'Estedad, Vazirmatn, Tahoma, sans-serif' } } }
             }
         }
     });
@@ -3733,6 +3763,10 @@ function savePerson() {
             _personPickerCallback(result.data);
             _personPickerCallback = null;
             _personPickerCategory = null;
+            // وضعیتِ picker کامل پاک و سربرگِ جدولِ اشخاص دوباره نمایش داده شود؛ وگرنه
+            // انتخابِ ذخیره/جنس در بلِ فروش و خرید بعد از ثبتِ شخصِ جدید کار نمی‌کرد.
+            try { if (typeof _restorePickerBackButton === 'function') _restorePickerBackButton(); } catch (e) {}
+            try { var _pth = document.querySelector('#persons-table thead'); if (_pth) _pth.style.display = ''; } catch (e) {}
             var ret = _personPickerReturnSection;
             if (ret) {
                 showSection(ret);
@@ -4986,7 +5020,62 @@ registerDataRebuilder({
 //  این تابع روی «هر» بارگذاری/وارد/بازیابی صدا زده می‌شود و ungated است؛ هر Rebuilder
 //  خودش با canRebuild تصمیم می‌گیرد که آیا دادهٔ خامِ کافی دارد یا نه.
 // ════════════════════════════════════════════════════════════════════════
-var REBUILD_PIPELINE = ['expense_categories_backfill', 'person_transfer_direction_fix', 'person_previous_account_cleanup', 'stock', 'purchase_price', 'cashbox_balance', 'sale_profit'];
+// ════════════════════════════════════════════════════════════════════════
+//  sale_wastage_exact_fix — اصلاحِ خودکارِ بل‌های قدیمیِ ضایعات
+//  بل‌هایی که پیش‌تر ذخیره شده‌اند ضریبِ ضایعات را گردشده (مثلاً ۲٫۱۴ به‌جای ۲٫۱۳۵)
+//  در سطرِ «ضایعات» داشتند. مبلغِ درست = جمعِ سهمِ سطربه‌سطرِ ضایعات که روی هر قلم
+//  ذخیره شده (wastageAmount). فقط «مجموع، جمع مبلغ و باقی‌مانده» به اندازهٔ همان اختلاف
+//  اصلاح می‌شوند؛ تخفیف، نقدِ دریافتی، حساب، ذخایر و مفاد دست نمی‌خورند. پیش‌فاکتور
+//  پیش‌فاکتور می‌ماند (saveSale صدا زده نمی‌شود). روی هر بلِ اصلاح‌شده wastageFix ثبت می‌شود.
+// ════════════════════════════════════════════════════════════════════════
+function _wsExactFixOne(t) {
+    if (!t || !Array.isArray(t.items) || t.wastageFix) return null;
+    var wRows = t.items.filter(function (it) { return it && it.isWastage; });
+    if (!wRows.length) return null;
+    var exact = 0, hasShare = false;
+    t.items.forEach(function (it) {
+        if (!it || it.isWastage) return;
+        var a = parseFloat(it.wastageAmount);
+        if (!isNaN(a)) { exact += a; hasShare = true; }
+    });
+    if (!hasShare || !(exact > 0)) return null;
+    exact = Math.round(exact * 100) / 100;
+    var stored = 0;
+    wRows.forEach(function (w) {
+        var tt = parseFloat(w.total);
+        stored += (!isNaN(tt) ? tt : (parseFloat(w.quantity) || 0) * (parseFloat(w.price) || 0));
+    });
+    var diff = Math.round((exact - stored) * 100) / 100;
+    if (Math.abs(diff) < 0.005) return null;
+    var before = parseFloat(t.totalAmount) || 0;
+    // همهٔ اختلاف روی نخستین سطرِ ضایعات می‌نشیند (معمولاً فقط یک سطر هست)
+    var w0 = wRows[0];
+    var w0Total = ((!isNaN(parseFloat(w0.total))) ? parseFloat(w0.total) : (parseFloat(w0.quantity) || 0) * (parseFloat(w0.price) || 0)) + diff;
+    w0.total = Math.round(w0Total * 100) / 100;
+    var wq = parseFloat(w0.quantity) || 0;
+    if (wq > 0) w0.price = w0.total / wq;
+    if (t.subTotal != null) t.subTotal = Math.round(((parseFloat(t.subTotal) || 0) + diff) * 100) / 100;
+    t.totalAmount = Math.round((before + diff) * 100) / 100;
+    if (t.remaining != null) t.remaining = Math.round(((parseFloat(t.remaining) || 0) + diff) * 100) / 100;
+    t.wastageFix = { before: before, after: t.totalAmount, diff: diff, at: new Date().toISOString() };
+    return diff;
+}
+registerDataRebuilder({
+    name: 'sale_wastage_exact_fix',
+    canRebuild: function () {
+        return _engRaw('transactions').some(function (t) {
+            return t && !t.wastageFix && Array.isArray(t.items) && t.items.some(function (it) { return it && it.isWastage; });
+        });
+    },
+    rebuild: function () {
+        var txs = _engRaw('transactions'), n = 0;
+        txs.forEach(function (t) { if (_wsExactFixOne(t) != null) n++; });
+        if (n > 0) localStorage.setItem('transactions', JSON.stringify(txs));
+        return { changed: n > 0, count: n };
+    }
+});
+
+var REBUILD_PIPELINE = ['expense_categories_backfill', 'person_transfer_direction_fix', 'person_previous_account_cleanup', 'sale_wastage_exact_fix', 'stock', 'purchase_price', 'cashbox_balance', 'sale_profit'];
 
 function rebuildAllDerivedData() {
     var summary = {};
@@ -5953,10 +6042,10 @@ function createSalesChart(days = 7) {
                 tooltip: {
                     rtl: true,
                     titleFont: {
-                        family: 'Vazirmatn'
+                        family: 'Estedad, Vazirmatn, Tahoma, sans-serif'
                     },
                     bodyFont: {
-                        family: 'Vazirmatn'
+                        family: 'Estedad, Vazirmatn, Tahoma, sans-serif'
                     },
                     callbacks: {
                         label: function(context) {
@@ -5972,7 +6061,7 @@ function createSalesChart(days = 7) {
                     },
                     ticks: {
                         font: {
-                            family: 'Vazirmatn'
+                            family: 'Estedad, Vazirmatn, Tahoma, sans-serif'
                         }
                     }
                 },
@@ -5983,7 +6072,7 @@ function createSalesChart(days = 7) {
                     },
                     ticks: {
                         font: {
-                            family: 'Vazirmatn'
+                            family: 'Estedad, Vazirmatn, Tahoma, sans-serif'
                         },
                         callback: function(value) {
                             return formatNumber(value) + ' ' + ((typeof getCurrencyLabel === 'function') ? getCurrencyLabel(null) : 'افغانی');
@@ -6198,8 +6287,8 @@ const monthNames = ['حمل','ثور','جوزا','سرطان','اسد','سنبل
                 tooltip: {
                     rtl: true,
                     backgroundColor: 'rgba(30,41,59,0.92)',
-                    titleFont: { family: 'Vazirmatn', size: 12 },
-                    bodyFont: { family: 'Vazirmatn', size: 11 },
+                    titleFont: { family: 'Estedad, Vazirmatn, Tahoma, sans-serif', size: 12 },
+                    bodyFont: { family: 'Estedad, Vazirmatn, Tahoma, sans-serif', size: 11 },
                     padding: 10,
                     callbacks: {
                         label: ctx => ' ' + ctx.dataset.label + ': ' + (typeof formatCurrencyAFN === 'function' ? formatCurrencyAFN(ctx.raw) : (typeof formatNumber === 'function' ? formatNumber(ctx.raw) : ctx.raw))
@@ -6208,13 +6297,13 @@ const monthNames = ['حمل','ثور','جوزا','سرطان','اسد','سنبل
             },
             scales: {
                 x: {
-                    ticks: { font: { family: 'Vazirmatn', size: 10 }, color: '#94a3b8' },
+                    ticks: { font: { family: 'Estedad, Vazirmatn, Tahoma, sans-serif', size: 10 }, color: '#94a3b8' },
                     grid: { color: 'rgba(148,163,184,0.10)', drawBorder: false }
                 },
                 y: {
                     beginAtZero: true,
                     ticks: {
-                        font: { family: 'Vazirmatn', size: 10 },
+                        font: { family: 'Estedad, Vazirmatn, Tahoma, sans-serif', size: 10 },
                         color: '#94a3b8',
                         callback: v => new Intl.NumberFormat((typeof getNumberSystem === 'function' && getNumberSystem() === 'en') ? 'en-US' : 'fa-IR').format(v)
                     },
@@ -6429,7 +6518,7 @@ function _renderDaySummaryBody(title) {
         { label: 'دریافتی',       val: (d.receivedDisplay != null ? d.receivedDisplay : d.received), icon: 'fa-hand-holding-usd', color: '#10b981' },
         { label: 'پرداختی',       val: (d.paidDisplay != null ? d.paidDisplay : d.paid),             icon: 'fa-money-check-alt',  color: '#6366f1' },
         { label: 'برگشت از فروش', val: d.retSale,     icon: 'fa-rotate-left',      color: '#f59e0b' },
-        { label: 'فروش خالص',     val: (d.sales - d.retSale), icon: 'fa-equals',    color: '#22c55e' },
+        // ردیفِ «فروش خالص» پنهان شد (درخواستِ کاربر: پنهان‌کردنِ ردیفِ «خلاصه فروش»)
         { label: 'برگشت ازخرید',  val: d.retPurchase, icon: 'fa-rotate-right',     color: '#ef4444' },
         { label: 'مصارفات',       val: d.expenses,    icon: 'fa-receipt',          color: '#ec4899' },
         { label: 'فاید امروز',    val: d.profit,      icon: 'fa-chart-simple',     color: (d.profit >= 0 ? '#22c55e' : '#ef4444') },
@@ -6788,6 +6877,24 @@ function _resolveProductPrice(product, currency, kind, unitType) {
                 v = (typeof db.getPurchasePrice === 'function') ? db.getPurchasePrice(product, cur) : null;
             }
             v = parseFloat(v);
+            // ارزِ پایه افغانی نیست و قیمتِ افغانیِ جداگانه ثبت نشده، ولی فیلدِ قدیمیِ «AFN»
+            // (salePriceAFN و مشابه) در واقع همان قیمتِ ارزِ پایه است → به افغانی تبدیل شود؛
+            // وگرنه بلِ افغانی همان عددِ دالری (مثلاً ۵) را نشان می‌داد.
+            if (cur === 'AFN' && v > 0) {
+                var _b = (typeof _baseCur === 'function') ? _baseCur() : 'AFN';
+                if (_b && _b !== 'AFN' && typeof db._convertProductPrice === 'function') {
+                    var _m = (isSec ? (isSale ? product.secondarySalePrices : product.secondaryPurchasePrices)
+                                    : (isSale ? product.salePrices : product.purchasePrices)) || {};
+                    var _lg = parseFloat(isSec ? (isSale ? product.secondarySalePriceAFN : product.secondaryPurchasePriceAFN)
+                                               : (isSale ? product.salePriceAFN : product.purchasePriceAFN));
+                    var _bp = parseFloat(_m[_b]);
+                    if (!(parseFloat(_m.AFN) > 0) && _lg > 0 && _bp > 0 && Math.abs(_lg - _bp) < 1e-9) {
+                        var _one = {}; _one[_b] = _bp;
+                        var _cv = parseFloat(db._convertProductPrice(_one, 0, 0, 'AFN'));
+                        if (_cv > 0) v = _cv;
+                    }
+                }
+            }
             return (isNaN(v) || v <= 0) ? null : v;
         } catch (e) { return null; }
     }
@@ -11681,7 +11788,7 @@ function restoreFromBackup(backupId) {
         const result = db.restoreBackup(backupId);
         if (result.success) {
             showMessage('موفقیت', 'پشتیبان با موفقیت بازیابی شد. صفحه در حال بازسازی است...');
-            setTimeout(() => location.reload(), 2000);
+            setTimeout(() => (window.JouyaStore && JouyaStore.reloadSafe ? JouyaStore.reloadSafe() : location.reload()), 2000);
         } else {
             showMessage('خطا', result.error || 'خطا در بازیابی');
         }
@@ -11854,12 +11961,12 @@ function generateProfessionalInvoiceHTML(transaction, settings, printSettings) {
 
     // نوع و اندازهٔ فونت (اختیاری از تنظیمات)
     var _fontMap = {
-        vazirmatn: "'Vazirmatn', Tahoma, Arial, sans-serif",
-        tahoma: "Tahoma, 'Vazirmatn', Arial, sans-serif",
-        arial: "Arial, 'Vazirmatn', Helvetica, sans-serif",
-        times: "'Times New Roman', 'Vazirmatn', serif",
-        courier: "'Courier New', 'Vazirmatn', monospace",
-        nazanin: "'B Nazanin', 'Nazanin', 'Vazirmatn', Tahoma, serif"
+        vazirmatn: "'Estedad', 'Vazirmatn', Tahoma, Arial, sans-serif",   // پیش‌فرض: استعداد
+        tahoma: "Tahoma, 'Estedad', 'Vazirmatn', Arial, sans-serif",
+        arial: "Arial, 'Estedad', 'Vazirmatn', Helvetica, sans-serif",
+        times: "'Times New Roman', 'Estedad', 'Vazirmatn', serif",
+        courier: "'Courier New', 'Estedad', 'Vazirmatn', monospace",
+        nazanin: "'B Nazanin', 'Nazanin', 'Estedad', 'Vazirmatn', Tahoma, serif"
     };
     var fontFamily = _fontMap[S.billFontFamily] || _fontMap.vazirmatn;
     var baseFont = parseFloat(S.billBaseFontSize) || (isThermal ? 10 : 12);   // px
@@ -11951,26 +12058,47 @@ function generateProfessionalInvoiceHTML(transaction, settings, printSettings) {
     var hasDetails = _itemDetailArr.some(function (d) { return !!d; });
 
     // ---- ردیف‌های اقلام ----
+    // «جمع مبلغ» مستقیماً جمعِ همین سطرهای چاپ‌شده است (_printGoodsSum)، نه «مجموعِ ذخیره‌شده
+    // منهای ضایعات»؛ پس اعشارِ اضافه (مثلاً ۰٫۱۲) از گردکردنِ ضریب‌ها دیگر پیدا نمی‌شود.
+    // پمپ استیشن: سطر فقط نوعِ تیل + مقدار و واحدی که واقعاً فروخته/خریده شده (مثلاً «۲ تن») +
+    // قیمتِ همان واحد را نشان می‌دهد (window._psInvoiceRow در pump-station.js).
     var rowsHtml = '';
     var rowCount = 0;
+    var _r3 = function (v) { return Math.round((parseFloat(v) || 0) * 1000) / 1000; };
+    var _printGoodsSum = 0;
+    var _hasWastage = false;
     items.forEach(function (item, i) {
+        if (item && item.isWastage) { _hasWastage = true; return; }
         var qty = parseFloat(item.quantity) || 0;
         var price = parseFloat(item.price) || 0;
         var disc = parseFloat(item.discount) || 0;
         var lineTotal = qty * price - disc;
+        var unit = item.unit || '';
         var desc = item.productName || item.name || '---';
-        try { if (typeof window._psInvoiceDesc === 'function') desc = window._psInvoiceDesc(item, desc); } catch (e) {}
+        var _pr = null;
+        try { if (typeof window._psInvoiceRow === 'function') _pr = window._psInvoiceRow(item); } catch (e) { _pr = null; }
+        if (_pr) {
+            desc = _pr.desc; qty = _pr.qty; unit = _pr.unit; price = _pr.price; lineTotal = _pr.total;
+        } else {
+            try { if (typeof window._psInvoiceDesc === 'function') desc = window._psInvoiceDesc(item, desc); } catch (e) {}
+        }
+        _printGoodsSum += _r3(lineTotal);
         rowsHtml +=
             '<tr>' +
-                '<td class="c-num">' + fn(i + 1) + '</td>' +
+                '<td class="c-num">' + fn(rowCount + 1) + '</td>' +
                 '<td class="c-desc">' + esc(desc) + '</td>' +
-                '<td class="c-qty">' + fn(qty) + (item.unit ? (' <span class="u">' + esc(item.unit) + '</span>') : '') + '</td>' +
+                '<td class="c-qty">' + fn(_r3(qty)) + (unit ? (' <span class="u">' + esc(unit) + '</span>') : '') + '</td>' +
                 '<td class="c-price">' + fn(price) + '</td>' +
-                '<td class="c-total">' + fn(lineTotal) + '</td>' +
+                '<td class="c-total">' + fn(_r3(lineTotal)) + '</td>' +
                 (hasDetails ? ('<td class="c-details">' + (esc(_itemDetailArr[i]) || '&nbsp;') + '</td>') : '') +
             '</tr>';
         rowCount++;
     });
+    _printGoodsSum = _r3(_printGoodsSum);
+    // «مجموع ضایعات» = مجموعِ ذخیره‌شدهٔ بل (پیش از تخفیف) منهای جمعِ سطرهای جنس؛ پس ستونِ
+    // مجموع‌ها همیشه با مجموعِ ذخیره‌شده یکی است. بلِ بدونِ ضایعات تغییری نمی‌کند.
+    var _printWastage = _hasWastage ? _r3((_grandTotal + _totalDiscount) - _printGoodsSum) : 0;
+    if (Math.abs(_printWastage) < 0.0005) _printWastage = 0;
     // ردیف‌های خالی برای رسیدن به حداقل تعداد (فقط برای A4/A5)
     if (!isThermal) {
         for (var r = rowCount; r < minRows; r++) {
@@ -12112,7 +12240,8 @@ function generateProfessionalInvoiceHTML(transaction, settings, printSettings) {
                 '<div class="sig-line">مهر و امضاء</div>' +
             '</div>' +
             '<div class="totals">' +
-                '<div class="tot-row"><span class="t-lbl">جمع مبلغ</span><span class="t-val">' + fn(_subTotal) + '</span></div>' +
+                '<div class="tot-row"><span class="t-lbl">جمع مبلغ</span><span class="t-val">' + fn(_printGoodsSum) + '</span></div>' +
+                (_printWastage ? ('<div class="tot-row"><span class="t-lbl">مجموع ضایعات</span><span class="t-val">' + fn(_printWastage) + '</span></div>') : '') +
                 '<div class="tot-row"><span class="t-lbl">تخفیف</span><span class="t-val">' + fn(_totalDiscount) + '</span></div>' +
                 '<div class="tot-row hl"><span class="t-lbl">مجموع</span><span class="t-val">' + fn(_grandTotal) + '</span></div>' +
                 '<div class="tot-row"><span class="t-lbl">پرداختی</span><span class="t-val">' + fn(_paid) + '</span></div>' +
@@ -12626,7 +12755,7 @@ function __hbSaveJsonFile(text, fileName) {
                 .catch(function () { return full; });
         }).then(function (uri) {
             try { __jouyaAndLog('ذخیرهٔ JSON', pl.dir + ':' + full + ' ✓'); } catch (e) {}
-            return { ok: true, android: true, where: pl.human, path: String(uri).replace(/^file:\/\//, ''), dir: pl.dir };
+            return { ok: true, android: true, where: pl.human, path: String(uri).replace(/^file:\/\//, ''), dir: pl.dir, uri: String(uri) };
         }).catch(function (e) {
             try { __jouyaAndLog('ذخیرهٔ JSON در ' + pl.dir, 'خطا: ' + ((e && (e.message || e.errorMessage)) || e)); } catch (e2) {}
             return step(i + 1, e);
@@ -12635,8 +12764,66 @@ function __hbSaveJsonFile(text, fileName) {
     return step(0, null);
 }
 
+/**
+ * «دانلود JSON» با انتخابِ محلِ ذخیره:
+ *  ۱) دسکتاپ و Tauri: پنجرهٔ «ذخیره در…» (showSaveFilePicker)
+ *  ۲) اپِ اندروید: نوشتنِ بومی و سپس منوی اشتراک‌گذاری
+ *  ۳) وبِ موبایل: navigator.share با فایل
+ *  ۴) در غیرِ این صورت: دانلودِ معمولی
+ *  نامِ فایل (با تاریخ) حفظ می‌شود. لغوِ کاربر → { ok:false, cancelled:true }.
+ */
+function __hbSaveJsonFilePick(text, fileName) {
+    var name = __jouyaAndSafeName(fileName, 'json');
+    var touch = false;
+    try { touch = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') || (window.matchMedia && window.matchMedia('(hover: none)').matches); } catch (e) {}
+    var cancelled = function (e) { return !!(e && (e.name === 'AbortError' || /abort|cancel/i.test(String(e.message || '')))); };
+    // ۱) دسکتاپ / Tauri
+    if (!__hbIsAndroidNative() && !touch && typeof window.showSaveFilePicker === 'function') {
+        return window.showSaveFilePicker({
+            suggestedName: name,
+            types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }]
+        }).then(function (h) {
+            return h.createWritable().then(function (w) {
+                return Promise.resolve(w.write(new Blob([text], { type: 'application/json' }))).then(function () { return w.close(); });
+            }).then(function () { return { ok: true, android: false, picked: true, where: 'ذخیره در…', path: h.name || name }; });
+        }).catch(function (e) {
+            if (cancelled(e)) return { ok: false, cancelled: true };
+            return __hbSaveJsonFile(text, name);
+        });
+    }
+    // ۲) اپِ اندروید: نوشتنِ بومی + منوی اشتراک‌گذاری
+    if (__hbIsAndroidNative()) {
+        return __hbSaveJsonFile(text, name).then(function (res) {
+            if (!res || !res.ok || !res.uri || /^blob:/.test(res.uri)) return res;
+            return __jouyaAndCall('Share', 'share', { title: name, files: [res.uri] })
+                .then(function () { res.shared = true; return res; })
+                .catch(function () { return res; });
+        });
+    }
+    // ۳) وبِ موبایل: اشتراکِ فایل
+    try {
+        if (touch && navigator.share && navigator.canShare) {
+            var f = new File([text], name, { type: 'application/json' });
+            if (navigator.canShare({ files: [f] })) {
+                return navigator.share({ files: [f], title: name }).then(function () {
+                    return { ok: true, android: false, shared: true, where: 'اشتراک‌گذاری', path: name };
+                }).catch(function (e) {
+                    if (cancelled(e)) return { ok: false, cancelled: true };
+                    return __hbSaveJsonFile(text, name);
+                });
+            }
+        }
+    } catch (e) {}
+    // ۴) دانلودِ معمولی
+    return __hbSaveJsonFile(text, name);
+}
+if (typeof window !== 'undefined') window.__hbSaveJsonFilePick = __hbSaveJsonFilePick;
+
 /** پیامِ یکدستِ «کجا ذخیره شد» برای هر چهار مسیرِ خروجیِ JSON */
 function __hbSavedJsonMsg(res) {
+    if (res && res.cancelled) return 'ذخیره لغو شد';
+    if (res && res.ok && res.picked) return 'فایل JSON ذخیره شد ✓' + (res.path ? ('\n' + res.path) : '');
+    if (res && res.ok && res.shared && !res.android) return 'فایل JSON برای اشتراک‌گذاری آماده شد ✓';
     if (!res || !res.ok) return 'ذخیرهٔ فایل ممکن نشد.';
     if (!res.android) return 'فایل JSON دانلود شد ✓';
     return 'فایل JSON ذخیره شد ✓\nمحلِ فایل: ' + (res.where || '') +
@@ -12708,7 +12895,7 @@ function __jouyaAndShowDiag(headline) {
         ov.id = 'jouya-and-diag';
         ov.setAttribute('dir', 'rtl');
         ov.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.86);' +
-            'display:flex;align-items:center;justify-content:center;padding:12px;font-family:Vazirmatn,monospace;';
+            'display:flex;align-items:center;justify-content:center;padding:12px;font-family:Estedad, Vazirmatn,monospace;';
         ov.innerHTML = '<div style="width:100%;max-width:520px;max-height:94vh;overflow:auto;color:#fff;">' +
             '<div style="font-size:15px;font-weight:800;color:#ffd166;margin-bottom:8px;">تشخیصِ ارسال — ' + String(headline || '') + '</div>' +
             '<div style="font-size:12.5px;line-height:2;white-space:pre-wrap;word-break:break-word;">' +
@@ -12868,7 +13055,7 @@ function __jouyaShowDiagOnScreen(txt, fname, reason) {
         ov.setAttribute('dir', 'rtl');
         ov.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:rgba(15,23,42,.97);' +
             'display:flex;align-items:center;justify-content:center;padding:14px;' +
-            'font-family:Vazirmatn,inherit;color:#e2e8f0;';
+            'font-family:Estedad,Vazirmatn,Tahoma,sans-serif;color:#e2e8f0;';
         var canSave  = __jouyaAndIsNative();
         var canShare = __jouyaAndIsNative();
         ov.innerHTML =
@@ -13228,6 +13415,7 @@ if (typeof window !== 'undefined') window.__jouyaSharePdfToWhatsApp = __jouyaSha
 // سیستم نامِ فارسیِ فایل را کامل و درست حفظ می‌کند. پس اینجا نامِ کاملاً فارسی می‌گذاریم.
 // ───────────────────────────────────────────────────────────────────────────
 function __jouyaHtmlToPdfBlob(html) {
+    try { html = _apexDigitHtml(html); } catch (e) {}   // Estedad + شکلِ رقم
     return new Promise(function (resolve, reject) {
         var jsPDFctor = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : (window.jsPDF || null);
         if (!jsPDFctor || typeof window.html2canvas !== 'function') { reject(new Error('pdf-libs-missing')); return; }
@@ -13247,7 +13435,7 @@ function __jouyaHtmlToPdfBlob(html) {
             var _fst = doc.createElement('style');
             _fst.textContent =
                 'body,div,span,p,td,th,h1,h2,h3,h4,h5,h6,a,label,strong,b,em,small,li,input,select,textarea{' +
-                "font-family:'Vazirmatn','Tahoma','Segoe UI',Arial,sans-serif !important;letter-spacing:normal !important;}";
+                "font-family:Estedad, 'Vazirmatn','Tahoma','Segoe UI',Arial,sans-serif !important;letter-spacing:normal !important;}";
             (doc.head || doc.documentElement).appendChild(_fst);
         } catch (e) {}
         var started = false;
@@ -13573,7 +13761,7 @@ function __jouyaMaybeMobilePreview(rawHtml, titleName) {
     try { bh = (location && location.href) ? location.href.replace(/[?#].*$/, '').replace(/[^\/]*$/, '') : ''; } catch (e) { bh = ''; }
     var ah = (bh ? ('<base href="' + bh + '">') : '')
         + '<link rel="stylesheet" href="assets/css/all.min.css">'
-        + '<link rel="stylesheet" href="assets/fonts/vazirmatn.css">';
+        + '<link rel="stylesheet" href="assets/fonts/estedad.css"><link rel="stylesheet" href="assets/fonts/vazirmatn.css">';
     try {
         __ppOpenMobileOverlay(rawHtml, ah, '', { title: titleName || 'گزارش', pdfName: titleName || 'گزارش', shareText: titleName || 'گزارش' });
         return true;
@@ -13598,7 +13786,7 @@ function __openPrintPreview(rawHtml, opts) {
     var icoWa    = useFA ? '<i class="fab fa-whatsapp"></i>' : '📱';
     var icoMail  = useFA ? '<i class="fas fa-envelope"></i>' : '✉️';
 
-    var bar = '<div id="__ppbar" class="no-print" style="display:flex;gap:14px;justify-content:center;align-items:center;padding:18px 12px 24px;font-family:Vazirmatn,Tahoma,sans-serif;direction:rtl;">'
+    var bar = '<div id="__ppbar" class="no-print" style="display:flex;gap:14px;justify-content:center;align-items:center;padding:18px 12px 24px;font-family:Estedad, Vazirmatn,Tahoma,sans-serif;direction:rtl;">'
         + '<button onclick="window.print()" style="cursor:pointer;border:1px solid #c7d2e8;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:bold;font-family:inherit;background:#eef3fb;color:#1b2a4a;display:inline-flex;align-items:center;gap:7px;box-shadow:0 1px 3px rgba(26,47,94,0.12);">' + icoPrint + ' چاپ</button>'
         + '<button onclick="__ppToggleShare()" style="cursor:pointer;border:1px solid #bfe3cd;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:bold;font-family:inherit;background:#eaf7f0;color:#0f7a43;display:inline-flex;align-items:center;gap:7px;box-shadow:0 1px 3px rgba(15,122,67,0.12);">' + icoShare + ' اشتراک‌گذاری</button>'
         + '</div>';
@@ -13615,7 +13803,7 @@ function __openPrintPreview(rawHtml, opts) {
         try { baseHref = (location && location.href) ? location.href.replace(/[?#].*$/, '').replace(/[^\/]*$/, '') : ''; } catch (e) { baseHref = ''; }
         assetsHead = (baseHref ? ('<base href="' + baseHref + '">') : '')
             + '<link rel="stylesheet" href="assets/css/all.min.css">'
-            + '<link rel="stylesheet" href="assets/fonts/vazirmatn.css">';
+            + '<link rel="stylesheet" href="assets/fonts/estedad.css"><link rel="stylesheet" href="assets/fonts/vazirmatn.css">';
     }
 
     var scr = '<scr' + 'ipt>'
@@ -13631,7 +13819,7 @@ function __openPrintPreview(rawHtml, opts) {
         +   'if(ex){ex.parentNode.removeChild(ex);return;}'
         +   'var t=encodeURIComponent(__ppText);var s=encodeURIComponent(__ppTitle);'
         +   'var m=document.createElement("div");m.id="__ppmenu";m.className="no-print";'
-        +   'm.setAttribute("style","position:fixed;bottom:70px;left:50%;transform:translateX(-50%);z-index:100000;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.2);padding:10px;display:flex;flex-direction:column;gap:8px;min-width:240px;font-family:Vazirmatn,Tahoma,sans-serif;direction:rtl;");'
+        +   'm.setAttribute("style","position:fixed;bottom:70px;left:50%;transform:translateX(-50%);z-index:100000;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.2);padding:10px;display:flex;flex-direction:column;gap:8px;min-width:240px;font-family:Estedad, Vazirmatn,Tahoma,sans-serif;direction:rtl;");'
         +   'var html="";'
         +   'html+=\'<button onclick="__ppSharePdf()" style="cursor:pointer;border:none;padding:11px 12px;border-radius:8px;background:#1b2a4a;color:#fff;font-weight:bold;font-family:inherit;text-align:right;display:flex;align-items:center;gap:8px;">' + icoPdf + ' اشتراک‌گذاری به صورت PDF</button>\';'
         +   'html+=\'<button onclick="__ppShareWaFile()" style="cursor:pointer;border:none;padding:11px 12px;border-radius:8px;background:#0f7a43;color:#fff;font-weight:bold;font-family:inherit;text-align:right;display:flex;align-items:center;gap:8px;">' + icoWa + ' ارسال به واتساپ</button>\';'
@@ -13648,7 +13836,7 @@ function __openPrintPreview(rawHtml, opts) {
     // ---- حالتِ بل خرید/فروش: نوارِ چاپ/اشتراک در «بالای» پیش‌نمایش + منوی «دانلود PDF بل» و «ارسال فایل بل به واتساپ» ----
     var pdfName = opts.pdfName || title;
     if (opts.billShare) {
-        bar = '<div id="__ppbar" class="no-print" style="display:flex;gap:14px;justify-content:center;align-items:center;padding:14px 12px;background:#f5f8fd;border-bottom:1px solid #dfe6f2;font-family:Vazirmatn,Tahoma,sans-serif;direction:rtl;position:sticky;top:0;z-index:9999;box-shadow:0 2px 6px rgba(26,47,94,0.06);">'
+        bar = '<div id="__ppbar" class="no-print" style="display:flex;gap:14px;justify-content:center;align-items:center;padding:14px 12px;background:#f5f8fd;border-bottom:1px solid #dfe6f2;font-family:Estedad, Vazirmatn,Tahoma,sans-serif;direction:rtl;position:sticky;top:0;z-index:9999;box-shadow:0 2px 6px rgba(26,47,94,0.06);">'
             + '<button onclick="window.print()" style="cursor:pointer;border:1px solid #c7d2e8;border-radius:8px;padding:9px 20px;font-size:13px;font-weight:bold;font-family:inherit;background:#eef3fb;color:#1b2a4a;display:inline-flex;align-items:center;gap:7px;box-shadow:0 1px 3px rgba(26,47,94,0.12);">' + icoPrint + ' چاپ</button>'
             + '<button id="__ppsharebtn" onclick="__ppToggleShare(event)" style="cursor:pointer;border:1px solid #bfe3cd;border-radius:8px;padding:9px 20px;font-size:13px;font-weight:bold;font-family:inherit;background:#eaf7f0;color:#0f7a43;display:inline-flex;align-items:center;gap:7px;box-shadow:0 1px 3px rgba(15,122,67,0.12);">' + icoShare + ' اشتراک‌گذاری</button>'
             + '</div>';
@@ -13663,7 +13851,7 @@ function __openPrintPreview(rawHtml, opts) {
             +   'try{ var a=document.createElement("a"); a.href="whatsapp://send"; document.body.appendChild(a); a.click(); document.body.removeChild(a); }catch(e){} }'
             + 'function __ppToggleShare(ev){ if(ev){ev.stopPropagation();} var ex=document.getElementById("__ppmenu"); if(ex){ __ppCloseMenu(); return; }'
             +   'var m=document.createElement("div"); m.id="__ppmenu"; m.className="no-print";'
-            +   'm.setAttribute("style","position:fixed;top:62px;left:50%;transform:translateX(-50%);z-index:100000;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.2);padding:10px;display:flex;flex-direction:column;gap:8px;min-width:270px;font-family:Vazirmatn,Tahoma,sans-serif;direction:rtl;");'
+            +   'm.setAttribute("style","position:fixed;top:62px;left:50%;transform:translateX(-50%);z-index:100000;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.2);padding:10px;display:flex;flex-direction:column;gap:8px;min-width:270px;font-family:Estedad, Vazirmatn,Tahoma,sans-serif;direction:rtl;");'
             +   'var html="";'
             +   'html+=\'<button onclick="__ppDownloadBillPdf()" style="cursor:pointer;border:none;padding:11px 12px;border-radius:8px;background:#b91c1c;color:#fff;font-weight:bold;font-family:inherit;text-align:right;display:flex;align-items:center;gap:8px;">' + icoPdf + ' دانلود PDF بل</button>\';'
             +   'html+=\'<button onclick="__ppShareBillWa()" style="cursor:pointer;border:none;padding:11px 12px;border-radius:8px;background:#0f7a43;color:#fff;font-weight:bold;font-family:inherit;text-align:right;display:flex;align-items:center;gap:8px;">' + icoWa + ' ارسال فایل بل به واتساپ</button>\';'
@@ -13717,7 +13905,7 @@ function __openPrintPreview(rawHtml, opts) {
         }
         return null;
     }
-    w.document.write(out);
+    w.document.write(_apexDigitHtml(out));
     w.document.close();
     w.focus();
     return w;
@@ -13738,6 +13926,7 @@ function __openPrintPreview(rawHtml, opts) {
 function __hbOpenTauriPrintWindow(docHtml, title) {
     try {
         if (!docHtml) return false;
+        try { docHtml = _apexDigitHtml(docHtml); } catch (e) {}   // Estedad + شکلِ رقم
         if (!(typeof __jouyaIsTauri === 'function' && __jouyaIsTauri())) return false;
         var T = window.__TAURI__;
         if (!T || !T.event || typeof T.event.listen !== 'function' || typeof T.event.emit !== 'function') return false;
@@ -13855,6 +14044,8 @@ function __ppOpenMobileOverlay(rawHtml, assetsHead, extraCss, meta) {
     if (doc.indexOf('</head>') !== -1) doc = doc.replace('</head>', headInject + '</head>');
     else if (doc.indexOf('<head>') !== -1) doc = doc.replace('<head>', '<head>' + headInject);
     else doc = '<!DOCTYPE html><head>' + headInject + '</head>' + doc;
+    // فونتِ Estedad و استایلِ رقم‌ها (apex-digit-faces) به آخرِ <head> منتقل می‌شوند
+    doc = _apexDigitHtml(doc);
 
     var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
 
@@ -13918,9 +14109,25 @@ function __ppOpenMobileOverlay(rawHtml, assetsHead, extraCss, meta) {
             if (avail && avail < PP_DESIGN_W) {
                 // ── موبایل / نمایشگرِ باریک ──
                 body.style.transform = ''; body.style.width = '';
+                // بل (فروش و خرید): در عرضِ ≤۷۶۸ جدولِ اقلام table-layout:auto می‌گیرد و
+                // ستون‌های عددی در یک خط می‌مانند (nowrap)، تا ارقام نشکنند.
+                try {
+                    if ((window.innerWidth || 0) <= 768 && d.querySelector('table.items') && !d.getElementById('__jouya_pp_items_fit')) {
+                        var _st = d.createElement('style'); _st.id = '__jouya_pp_items_fit';
+                        _st.textContent = '.items{table-layout:auto !important;}' +
+                            '.items td.c-num,.items td.c-qty,.items td.c-price,.items td.c-total,.items th{white-space:nowrap !important;}';
+                        (d.head || d.documentElement).appendChild(_st);
+                    }
+                } catch (_) {}
                 frame.style.width = PP_DESIGN_W + 'px';
                 frame.style.maxWidth = 'none';
-                var sc = avail / PP_DESIGN_W;
+                // مقیاس از «عرضِ طبیعیِ» سند (جدول) نسبت به «عرضِ محتوای قاب» (بدونِ padding)
+                var _cs = null; try { _cs = window.getComputedStyle(wrap); } catch (_) {}
+                var _inner = avail - (_cs ? ((parseFloat(_cs.paddingLeft) || 0) + (parseFloat(_cs.paddingRight) || 0)) : 0);
+                if (!(_inner > 0)) _inner = avail;
+                var _nat = Math.max(PP_DESIGN_W, body.scrollWidth || 0, (d.documentElement ? d.documentElement.scrollWidth : 0) || 0);
+                if (_nat > PP_DESIGN_W) frame.style.width = _nat + 'px';
+                var sc = _inner / _nat;
                 var ch = Math.max(body.scrollHeight || 0,
                                   (d.documentElement ? d.documentElement.scrollHeight : 0) || 0, 220);
                 frame.style.height = Math.ceil(ch + 8) + 'px';
@@ -13928,7 +14135,13 @@ function __ppOpenMobileOverlay(rawHtml, assetsHead, extraCss, meta) {
                 frame.style.transform = 'scale(' + sc + ')';
                 holder.style.width = '100%';
                 holder.style.overflow = 'hidden';
-                holder.style.height = Math.ceil((ch + 8) * sc) + 'px';
+                var _sh = Math.ceil((ch + 8) * sc);
+                holder.style.height = _sh + 'px';
+                // پیش‌نمایشِ کوتاه‌تر از صفحه، عمودی وسطِ صفحه قرار می‌گیرد
+                try {
+                    var _vh = wrap.clientHeight - (_cs ? ((parseFloat(_cs.paddingTop) || 0) + (parseFloat(_cs.paddingBottom) || 0)) : 0);
+                    holder.style.marginTop = (_vh > _sh + 2) ? Math.floor((_vh - _sh) / 2) + 'px' : '0px';
+                } catch (_) {}
                 try { console.log('[jouya-preview] fit(mobile)', { avail: avail, design: PP_DESIGN_W, scale: Math.round(sc * 100) / 100 }); } catch (_) {}
                 return;
             }
@@ -13936,7 +14149,7 @@ function __ppOpenMobileOverlay(rawHtml, assetsHead, extraCss, meta) {
             // ── نمایشگرِ عریض: همان مسیرِ قبلی ──
             frame.style.width = ''; frame.style.maxWidth = '';
             frame.style.transform = ''; frame.style.transformOrigin = '';
-            holder.style.height = ''; holder.style.overflow = '';
+            holder.style.height = ''; holder.style.overflow = ''; holder.style.marginTop = '';
             body.style.transform = ''; body.style.width = '';
             var natural = Math.max(body.scrollWidth || 0, (d.documentElement ? d.documentElement.scrollWidth : 0) || 0, 1);
             var avail2 = avail || natural;
@@ -14183,12 +14396,12 @@ function generatePersonReport(personId) {
     var onPrimary = _contrastOn(navy);
     var navyDark = _shade(navy, -18);
     var _fontMap = {
-        vazirmatn: "'Vazirmatn', Tahoma, Arial, sans-serif",
-        tahoma: "Tahoma, 'Vazirmatn', Arial, sans-serif",
-        arial: "Arial, 'Vazirmatn', Helvetica, sans-serif",
-        times: "'Times New Roman', 'Vazirmatn', serif",
-        courier: "'Courier New', 'Vazirmatn', monospace",
-        nazanin: "'B Nazanin', 'Nazanin', 'Vazirmatn', Tahoma, serif"
+        vazirmatn: "'Estedad', 'Vazirmatn', Tahoma, Arial, sans-serif",   // پیش‌فرض: استعداد
+        tahoma: "Tahoma, 'Estedad', 'Vazirmatn', Arial, sans-serif",
+        arial: "Arial, 'Estedad', 'Vazirmatn', Helvetica, sans-serif",
+        times: "'Times New Roman', 'Estedad', 'Vazirmatn', serif",
+        courier: "'Courier New', 'Estedad', 'Vazirmatn', monospace",
+        nazanin: "'B Nazanin', 'Nazanin', 'Estedad', 'Vazirmatn', Tahoma, serif"
     };
     var fontFamily = _fontMap[S.billFontFamily] || _fontMap.vazirmatn;
     var baseFont = parseFloat(S.billBaseFontSize) || 12;
@@ -14599,6 +14812,7 @@ function generatePersonReport(personId) {
     <title>گزارش معاملات - ${esc(person.name)}</title>
     ${baseHref ? `<base href="${baseHref}">` : ''}
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link rel="stylesheet" href="assets/fonts/estedad.css">
     <link rel="stylesheet" href="assets/fonts/vazirmatn.css">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -14949,12 +15163,12 @@ function generateCashboxReport(cashboxId) {
     var onPrimary = _contrastOn(navy);
     var navyDark = _shade(navy, -18);
     var _fontMap = {
-        vazirmatn: "'Vazirmatn', Tahoma, Arial, sans-serif",
-        tahoma: "Tahoma, 'Vazirmatn', Arial, sans-serif",
-        arial: "Arial, 'Vazirmatn', Helvetica, sans-serif",
-        times: "'Times New Roman', 'Vazirmatn', serif",
-        courier: "'Courier New', 'Vazirmatn', monospace",
-        nazanin: "'B Nazanin', 'Nazanin', 'Vazirmatn', Tahoma, serif"
+        vazirmatn: "'Estedad', 'Vazirmatn', Tahoma, Arial, sans-serif",   // پیش‌فرض: استعداد
+        tahoma: "Tahoma, 'Estedad', 'Vazirmatn', Arial, sans-serif",
+        arial: "Arial, 'Estedad', 'Vazirmatn', Helvetica, sans-serif",
+        times: "'Times New Roman', 'Estedad', 'Vazirmatn', serif",
+        courier: "'Courier New', 'Estedad', 'Vazirmatn', monospace",
+        nazanin: "'B Nazanin', 'Nazanin', 'Estedad', 'Vazirmatn', Tahoma, serif"
     };
     var fontFamily = _fontMap[S.billFontFamily] || _fontMap.vazirmatn;
     var baseFont = parseFloat(S.billBaseFontSize) || 12;
@@ -18201,7 +18415,7 @@ function _rpPersonsPdf(kind) {
             return '<tr' + cls + '>' + r.map(function (c) { return '<' + tag + '>' + esc(c) + '</' + tag + '>'; }).join('') + '</tr>';
         }).join('');
         var html = '<!DOCTYPE html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>' + esc(title) + '</title>' +
-            '<style>@page{size:A4;margin:12mm;} body{font-family:Vazirmatn,Tahoma,sans-serif;direction:rtl;color:#1e293b;} ' +
+            '<style>@page{size:A4;margin:12mm;} body{font-family:Estedad, Vazirmatn,Tahoma,sans-serif;direction:rtl;color:#1e293b;} ' +
             'h2{color:#1e3a5f;margin:0 0 4px;} .rp-meta{color:#64748b;font-size:12px;margin-bottom:12px;} ' +
             'table{width:100%;border-collapse:collapse;font-size:12px;} td,th{border:1px solid #cbd5e1;padding:6px 8px;text-align:right;} ' +
             'th.rp-pdf-head,tr.rp-pdf-head th,tr.rp-pdf-head td{background:#1e3a5f;color:#fff;font-weight:bold;} ' +
@@ -18504,7 +18718,7 @@ function downloadPersonReportFile(personId, fromDate, toDate) {
     var html = '<!DOCTYPE html>\n<html dir="rtl" lang="fa">\n<head>\n<meta charset="UTF-8">\n'
         + '<title>گزارش - ' + person.name + '</title>\n<style>\n'
         + '@page{size:A4 landscape;margin:10mm;}\n'
-        + 'body{font-family:Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:24px;color:#222;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
+        + 'body{font-family:Estedad, Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:24px;color:#222;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
         + 'h2{color:#1e3a5f;margin-bottom:4px;}\n'
         + 'table{width:100%;border-collapse:collapse;margin:20px 0;}\n'
         + 'th{background:#1e3a5f;color:#fff;padding:9px 12px;text-align:right;}\n'
@@ -18605,7 +18819,7 @@ function downloadCategoryReportFile(categoryName, fromDate, toDate) {
     var html = '<!DOCTYPE html>\n<html dir="rtl" lang="fa">\n<head>\n<meta charset="UTF-8">\n'
         + '<title>گزارش مصارف - ' + categoryName + '</title>\n<style>\n'
         + '@page{size:A4 landscape;margin:10mm;}\n'
-        + 'body{font-family:Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:24px;color:#222;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
+        + 'body{font-family:Estedad, Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:24px;color:#222;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
         + 'h2{color:#1e3a5f;margin-bottom:4px;}\n'
         + 'table{width:100%;border-collapse:collapse;margin:20px 0;}\n'
         + 'th{background:#1e3a5f;color:#fff;padding:9px 12px;text-align:right;}\n'
@@ -19122,7 +19336,7 @@ function downloadProductsReport(reportType, scope, scopeValue, fromDate, toDate)
     var html = '<!DOCTYPE html>\n<html dir="rtl" lang="fa">\n<head>\n<meta charset="UTF-8">\n'
         + '<title>' + title + '</title>\n<style>\n'
         + '@page{size:A4 landscape;margin:8mm;}\n'
-        + 'body{font-family:Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:24px;color:#222;background:#f8fafc;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
+        + 'body{font-family:Estedad, Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:24px;color:#222;background:#f8fafc;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
         + 'h2{color:#1e3a5f;margin-bottom:4px;font-size:1.4rem;}\n'
         + '.summary{display:flex;gap:14px;margin:16px 0;flex-wrap:wrap;}\n'
         + '.sum-item{flex:1;min-width:150px;padding:14px;border-radius:12px;text-align:center;}\n'
@@ -19733,7 +19947,7 @@ function downloadProfitReport(reportType, fromDate, toDate) {
     var html = '<!DOCTYPE html>\n<html dir="rtl" lang="fa">\n<head>\n<meta charset="UTF-8">\n'
         + '<title>گزارش سود و سرمایه</title>\n<style>\n'
         + '@page{size:A4 landscape;margin:8mm;}\n'
-        + 'body{font-family:Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:24px;color:#222;background:#f8fafc;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
+        + 'body{font-family:Estedad, Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:24px;color:#222;background:#f8fafc;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
         + 'h2{color:#1e3a5f;margin-bottom:4px;font-size:1.4rem;}\n'
         + 'h3{color:#334155;font-size:1rem;margin-bottom:8px;}\n'
         + '.summary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin:16px 0;}\n'
@@ -19865,7 +20079,7 @@ function downloadAllPersonsReport(fromDate, toDate) {
     var html = '<!DOCTYPE html>\n<html dir="rtl" lang="fa">\n<head>\n<meta charset="UTF-8">'
         + '<title>گزارش کامل همه افراد</title>\n<style>\n'
         + '@page{size:A4 landscape;margin:10mm;}\n'
-        + 'body{font-family:Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:20px;color:#222;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
+        + 'body{font-family:Estedad, Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:20px;color:#222;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
         + 'h2{color:#1e3a5f;margin-bottom:4px;}\n'
         + 'h3{color:#1e3a5f;font-size:1rem;margin-bottom:6px;}\n'
         + 'table{width:100%;border-collapse:collapse;margin:12px 0;font-size:12px;}\n'
@@ -19979,7 +20193,7 @@ function downloadAllFinanceReport(fromDate, toDate) {
     var html = '<!DOCTYPE html>\n<html dir="rtl" lang="fa">\n<head>\n<meta charset="UTF-8">'
         + '<title>گزارش کامل مصارف</title>\n<style>\n'
         + '@page{size:A4 landscape;margin:10mm;}\n'
-        + 'body{font-family:Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:20px;color:#222;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
+        + 'body{font-family:Estedad, Tahoma,"Vazirmatn",sans-serif;direction:rtl;padding:20px;color:#222;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n'
         + 'h2{color:#1e3a5f;margin-bottom:4px;}\n'
         + 'h3{color:#1e3a5f;font-size:1rem;margin-bottom:6px;}\n'
         + 'table{width:100%;border-collapse:collapse;margin:12px 0;font-size:12px;}\n'
@@ -20285,7 +20499,7 @@ function generateInvoiceContent(transaction, settings, printSettings) {
                 }
             }
             body {
-                font-family: Tahoma, sans-serif;
+                font-family: Estedad, Tahoma, sans-serif;
                 margin: 0;
                 padding: 20px;
             }
@@ -20475,7 +20689,7 @@ function formatCurrency(amount, currencyCode) {
                 <meta charset="UTF-8">
                 <title>فاکتور فروش ${transaction.billNumber || ''}</title>
                 <style>
-                    body { font-family: Tahoma, sans-serif; font-size: 14px; padding: 20px; }
+                    body { font-family: Estedad, Tahoma, sans-serif; font-size: 14px; padding: 20px; }
                     .invoice { width: 100%; max-width: 800px; margin: 0 auto; }
                     .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 30px; }
                     .store-name { font-size: 24px; font-weight: bold; }
@@ -23434,7 +23648,7 @@ function showToast(message, type = 'info') {
     var iconColor = colors[type] || colors.info;
     var toast = document.createElement('div');
     toast.id = 'app-toast';
-    toast.style.cssText = 'position:fixed;bottom:75px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;align-items:center;gap:8px;padding:0;background:none;border:none;box-shadow:none;opacity:0;transition:opacity 0.3s;direction:rtl;max-width:90%;font-family:Vazirmatn,sans-serif;pointer-events:none;';
+    toast.style.cssText = 'position:fixed;bottom:75px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;align-items:center;gap:8px;padding:0;background:none;border:none;box-shadow:none;opacity:0;transition:opacity 0.3s;direction:rtl;max-width:90%;font-family:Estedad, Vazirmatn,sans-serif;pointer-events:none;';
     toast.innerHTML = '<i class="fas ' + (icons[type] || icons.info) + '" style="font-size:20px;color:' + iconColor + ';filter:drop-shadow(0 1px 3px rgba(0,0,0,0.35));"></i><span style="font-size:14px;font-weight:700;color:' + iconColor + ';text-shadow:0 1px 3px rgba(0,0,0,0.4);letter-spacing:0.2px;">' + message + '</span>';
     document.body.appendChild(toast);
     setTimeout(function() { toast.style.opacity = '1'; }, 10);
@@ -24134,11 +24348,40 @@ function srAddReturnRow(data) {
         '<td><input type="number" class="sr-disc bill-cell-input" step="0.01" value="' + (data.discount != null ? data.discount : 0) + '" readonly style="width:100%;"></td>' +
         '<td style="text-align:center;"><span class="sr-returnable">' + (data.returnable != null ? formatNumber(data.returnable) : '—') + '</span></td>' +
         '<td><span class="sr-total">۰</span></td>' +
-        '<td><button type="button" class="btn-icon btn-danger" onclick="srRemoveRow(this)"><i class="fas fa-trash"></i></button></td>';
+        '<td></td>' +
+        '<td class="ret-row-actions">' + _retRowActionsHtml('sr') + '</td>';
     body.appendChild(tr);
     srUpdateRowByTr(tr);
     return tr;
 }
+
+// ── ستونِ «...» در ردیف‌های برگشت از فروش/خرید: ⊕ ⊖ ⊗ ─────────────────────────
+//  ⊕/⊖ مقدار را یک واحد بالا/پایین می‌برند و همان رویدادِ تایپ (input) را اجرا می‌کنند؛
+//  پس جمع و سقفِ «قابل برگشت» خودکار اعمال می‌شود. ⊖ مقدار را زیرِ ۱ نمی‌برد.
+//  ⊗ همان تابعِ حذفِ قبلی (srRemoveRow / prRemoveRow) را صدا می‌زند.
+function _retRowActionsHtml(kind) {
+    var rm = (kind === 'pr') ? 'prRemoveRow(this)' : 'srRemoveRow(this)';
+    return '<span class="ret-acts">' +
+        '<button type="button" class="ret-act ret-act-plus" tabindex="-1" title="افزایش مقدار" onclick="_retStepQty(this,1)"><i class="fas fa-plus"></i></button>' +
+        '<button type="button" class="ret-act ret-act-minus" tabindex="-1" title="کاهش مقدار" onclick="_retStepQty(this,-1)"><i class="fas fa-minus"></i></button>' +
+        '<button type="button" class="ret-act ret-act-del" tabindex="-1" title="حذف سطر" onclick="' + rm + '"><i class="fas fa-xmark"></i></button>' +
+    '</span>';
+}
+function _retStepQty(btn, d) {
+    var tr = btn && btn.closest ? btn.closest('.sr-item-row, .pr-item-row') : null;
+    if (!tr) return;
+    var inp = tr.querySelector('.sr-qty, .pr-qty');
+    if (!inp) return;
+    var _toEn = (typeof toEnglishDigits === 'function') ? toEnglishDigits : function (x) { return x; };
+    var v = parseFloat(_toEn(String(inp.value || '0'))) || 0;
+    var nv = v + d;
+    if (d < 0 && nv < 1) nv = (v > 1) ? 1 : v;          // زیرِ ۱ نمی‌رود
+    nv = Math.round(nv * 1000000) / 1000000;
+    if (nv === v) return;
+    inp.value = String(nv);
+    try { inp.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) { if (typeof inp.oninput === 'function') inp.oninput(); }
+}
+if (typeof window !== 'undefined') { window._retRowActionsHtml = _retRowActionsHtml; window._retStepQty = _retStepQty; }
 
 function srRemoveRow(btn) {
     var tr = btn.closest('.sr-item-row');
@@ -24712,7 +24955,8 @@ function prAddReturnRow(data) {
         '<td><input type="number" class="pr-disc bill-cell-input" step="0.01" value="' + (data.discount != null ? data.discount : 0) + '" readonly style="width:100%;"></td>' +
         '<td style="text-align:center;"><span class="pr-returnable">' + (data.returnable != null ? formatNumber(data.returnable) : '\u2014') + '</span></td>' +
         '<td><span class="pr-total">۰</span></td>' +
-        '<td><button type="button" class="btn-icon btn-danger" onclick="prRemoveRow(this)"><i class="fas fa-trash"></i></button></td>';
+        '<td></td>' +
+        '<td class="ret-row-actions">' + _retRowActionsHtml('pr') + '</td>';
     body.appendChild(tr);
     prUpdateRowByTr(tr);
     return tr;
@@ -27706,7 +27950,7 @@ function ssbLoadSubContent(key) {
                 <h4><i class="fas fa-font"></i> فونت بل</h4>
                 <label>نوع فونت</label>
                 <select id="ssb-bill-font-family">
-                    <option value="vazirmatn">وزیرمتن (پیش‌فرض)</option>
+                    <option value="vazirmatn">استعداد (پیش‌فرض)</option>
                     <option value="tahoma">Tahoma</option>
                     <option value="nazanin">B Nazanin / نازنین</option>
                     <option value="arial">Arial</option>
@@ -28139,7 +28383,7 @@ function ssbPopulateForm(key) {
                 var _bf = document.getElementById('ssb-bill-barcode-file'); if (_bf) _bf.value = '';
             } catch (_) {}
         } else if (key === 'numsys') {
-            const sys = (typeof getNumberSystem === 'function') ? getNumberSystem() : 'fa';
+            const sys = _apexDigitMode();
             const radioFa = document.getElementById('ssb-numsys-fa');
             const radioEn = document.getElementById('ssb-numsys-en');
             if (radioFa) radioFa.checked = (sys === 'fa');
@@ -28404,17 +28648,49 @@ function ssbSaveStore() {
     try { if (typeof loadDashboard === 'function') loadDashboard(); } catch(e) {}
     ssbShowMsg('اطلاعات پمپ استیشن ذخیره و اعمال شد ✓');
 }
+// ═══ کوچک‌سازیِ تصویر (لوگو/تصاویرِ بل) — حداکثر ۱۰۲۴ پیکسل ═══
+//  تصویرِ بزرگ (مثلاً عکسِ ۴۰۰۰ پیکسلیِ گوشی) چند مگابایت در تنظیمات می‌نشست و هم حافظه
+//  و هم سینک را سنگین می‌کرد. PNG/WebP/GIF (احتمالِ شفافیت) PNG می‌ماند تا شفافیت حفظ
+//  شود؛ بقیه JPEG با کیفیتِ ۰٫۸۸. اگر نتیجه بزرگ‌تر شد، همان اصل برگردانده می‌شود.
+function _apexShrinkImage(dataUrl, maxPx) {
+    maxPx = maxPx || 1024;
+    return new Promise(function (resolve) {
+        try {
+            if (typeof dataUrl !== 'string' || dataUrl.indexOf('data:image/') !== 0 || /^data:image\/svg/i.test(dataUrl)) { resolve(dataUrl); return; }
+            var img = new Image();
+            img.onload = function () {
+                try {
+                    var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+                    if (!w || !h) { resolve(dataUrl); return; }
+                    var sc = Math.min(1, maxPx / Math.max(w, h));
+                    if (sc >= 1 && dataUrl.length < 400000) { resolve(dataUrl); return; }
+                    var cw = Math.max(1, Math.round(w * sc)), ch = Math.max(1, Math.round(h * sc));
+                    var cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+                    var cx = cv.getContext('2d');
+                    var alpha = /^data:image\/(png|webp|gif)/i.test(dataUrl);
+                    if (!alpha) { cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cw, ch); }
+                    cx.imageSmoothingEnabled = true; try { cx.imageSmoothingQuality = 'high'; } catch (e) {}
+                    cx.drawImage(img, 0, 0, cw, ch);
+                    var out = alpha ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', 0.88);
+                    resolve(out && out.length < dataUrl.length ? out : dataUrl);
+                } catch (e) { resolve(dataUrl); }
+            };
+            img.onerror = function () { resolve(dataUrl); };
+            img.src = dataUrl;
+        } catch (e) { resolve(dataUrl); }
+    });
+}
 // پیش‌نمایش و انتخاب لوگوی جدید پمپ استیشن از تنظیمات
 function ssbPreviewStoreLogo(event) {
     try {
         var file = event && event.target && event.target.files ? event.target.files[0] : null;
         if (!file) return;
         var reader = new FileReader();
-        reader.onload = function(ev) {
-            window.__ssbNewLogo = ev.target.result;
+        reader.onload = function(ev) { _apexShrinkImage(ev.target.result).then(function (src) {
+            window.__ssbNewLogo = src;
             var lp = document.getElementById('ssb-store-logo-preview');
-            if (lp) { lp.src = ev.target.result; lp.style.display = 'inline-block'; }
-        };
+            if (lp) { lp.src = src; lp.style.display = 'inline-block'; }
+        }); };
         reader.readAsDataURL(file);
     } catch(e) { console.error('ssbPreviewStoreLogo error:', e); }
 }
@@ -28437,12 +28713,12 @@ function ssbBillImgPreview(event, key, previewId) {
         var file = event && event.target && event.target.files ? event.target.files[0] : null;
         if (!file) return;
         var reader = new FileReader();
-        reader.onload = function (ev) {
+        reader.onload = function (ev) { _apexShrinkImage(ev.target.result).then(function (src) {
             if (!window.__ssbBill) window.__ssbBill = {};
-            window.__ssbBill[key] = ev.target.result;
+            window.__ssbBill[key] = src;
             var pv = document.getElementById(previewId);
-            if (pv) { pv.src = ev.target.result; pv.style.display = 'inline-block'; }
-        };
+            if (pv) { pv.src = src; pv.style.display = 'inline-block'; }
+        }); };
         reader.readAsDataURL(file);
     } catch (e) { console.error('ssbBillImgPreview error:', e); }
 }
@@ -28772,7 +29048,7 @@ function ssbDeletePersons() {
                 ssbShowMsg('افراد از این دستگاه حذف شدند ✓ (فضای ابری دست‌نخورده)');
                 // بارگذاریِ مجدد لازم است: نسخهٔ درون‌حافظه‌ایِ db هنوز افراد را نگه می‌دارد و
                 // بدونِ reload دوباره نمایش/ذخیره می‌شود. reload حافظه را از localStorageِ پاک‌شده می‌خواند.
-                setTimeout(function () { try { location.reload(); } catch (e) {} }, 900);
+                setTimeout(function () { try { (window.JouyaStore && JouyaStore.reloadSafe ? JouyaStore.reloadSafe() : location.reload()); } catch (e) {} }, 900);
             });
             return;
         }
@@ -28796,7 +29072,7 @@ function ssbClearAll() {
                 // بارگذاریِ مجدد لازم است: نسخهٔ درون‌حافظه‌ایِ db (حساب‌ها/موجودی‌ها و ...) بدونِ
                 // reload باقی می‌ماند و دوباره نمایش/ذخیره می‌شود. reload، حافظه را از localStorageِ
                 // پاک‌شده می‌خواند تا هیچ بازمانده‌ای (مثلِ موجودیِ حساب) نماند. فضای ابری دست‌نخورده است.
-                setTimeout(function () { try { location.reload(); } catch (e) {} }, 900);
+                setTimeout(function () { try { (window.JouyaStore && JouyaStore.reloadSafe ? JouyaStore.reloadSafe() : location.reload()); } catch (e) {} }, 900);
             });
             return;
         }
@@ -28854,7 +29130,7 @@ function ssbFullReset() {
             // عمداً فقط همین‌ها — دادهٔ کسب‌وکار دست‌نخورده می‌ماند تا رفتارِ این دکمه عوض نشود.
             __hbUserListKeys().forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
         } catch (e) {}
-        location.reload();
+        (window.JouyaStore && JouyaStore.reloadSafe ? JouyaStore.reloadSafe() : location.reload());
     };
     if (typeof showConfirm === 'function') {
         showConfirm('ریسیت کامل برنامه',
@@ -28877,7 +29153,7 @@ function ssbAdvancedCleanup() {
         var finishLocal = function (cloudMsg) {
             var after = function () {
                 ssbShowMsg(cloudMsg);
-                setTimeout(function () { try { location.reload(); } catch (e) {} }, 1200);
+                setTimeout(function () { try { (window.JouyaStore && JouyaStore.reloadSafe ? JouyaStore.reloadSafe() : location.reload()); } catch (e) {} }, 1200);
             };
             if (S && typeof S.localOnlyWipe === 'function' && keys) {
                 S.localOnlyWipe(keys).then(after).catch(after);
@@ -29136,7 +29412,7 @@ function __hbTrialBegin() {
 // پس فقط یک راهِ بازگردانی وجود دارد و امکانِ ناهماهنگی نیست.)
 function __hbTrialEnd() {
     try { sessionStorage.removeItem(__hbTrialSessKey()); } catch (e) {}
-    try { location.reload(); } catch (e) {}
+    try { (window.JouyaStore && JouyaStore.reloadSafe ? JouyaStore.reloadSafe() : location.reload()); } catch (e) {}
 }
 // نوارِ هشدارِ بالای صفحه در حالتِ آزمایشی
 function __hbTrialBanner() {
@@ -29362,8 +29638,8 @@ function ssbExportData() {
     try {
         const data = db.exportData ? db.exportData() : { success: false };
         if (data.success) {
-            __hbSaveJsonFile(JSON.stringify(data.data, null, 2), `export_${Date.now()}.json`)
-                .then(function (res) { ssbShowMsg(__hbSavedJsonMsg(res), !res.ok); })
+            __hbSaveJsonFilePick(JSON.stringify(data.data, null, 2), `export_${Date.now()}.json`)
+                .then(function (res) { ssbShowMsg(__hbSavedJsonMsg(res), !res.ok && !res.cancelled); })
                 .catch(function (e) { ssbShowMsg('خطا در خروجی: ' + ((e && e.message) || ''), true); });
         }
     } catch(e) { ssbShowMsg('خطا در خروجی', true); }
@@ -29800,7 +30076,7 @@ function printReport() {
     if (!table) return;
     var html = `<html dir="rtl"><head><meta charset="UTF-8"><title>گزارش</title>
     <style>
-        body { font-family: Tahoma, sans-serif; }
+        body { font-family: Estedad, Tahoma, sans-serif; }
         table { width: 100%; border-collapse: collapse; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
         th { background: #2c3e50; color: white; }
@@ -30114,7 +30390,7 @@ function _generateReceiptSlipHTML(tx, settings) {
     body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .no-print { display: none !important; }
 }
-body { font-family: 'Vazirmatn', Tahoma, Arial, sans-serif; font-size: 12px; color: #1a2533; background: #eef2f7; direction: rtl; padding: 10mm; }
+body { font-family: Estedad, 'Vazirmatn', Tahoma, Arial, sans-serif; font-size: 12px; color: #1a2533; background: #eef2f7; direction: rtl; padding: 10mm; }
 .slp-wrap { background: #fff; border-radius: 10px; overflow: hidden; max-width: 210mm; margin: 0 auto; box-shadow: 0 2px 10px rgba(0,0,0,0.08); }
 
 /* ---- هدر ---- */
@@ -33416,6 +33692,81 @@ function applyProformaDiscount() {
 
 
 // =============================================================================
+// ===== سیستمِ اعدادِ فارسی/انگلیسی در کلِ برنامه (فقط «شکلِ» رقم) =====
+//  داده و محاسبات همیشه با ارقامِ انگلیسی می‌مانند (getNumberSystem همیشه 'en'). فقط شکلِ
+//  رقم با یک فونتِ کوچکِ «فقط رقم» عوض می‌شود: در حالتِ «فارسی»، برای خانوادهٔ Estedad به
+//  ازای هر وزن (۱۰۰…۹۰۰) یک @font-face با unicode-range: U+0030-0039 تعریف می‌شود که
+//  ارقامِ 0-9 را با شکلِ ۰-۹ِ همان وزن نشان می‌دهد. پس inputها، تقویم، منوها، نمودارها و
+//  سندهای چاپی همه فارسی دیده می‌شوند، ولی متنِ خروجی (واتساپ، اکسل، کپی) انگلیسی می‌ماند.
+// =============================================================================
+function _apexDigitMode() {
+    try { return (localStorage.getItem('numberSystem') === 'fa') ? 'fa' : 'en'; } catch (e) { return 'en'; }
+}
+// دادهٔ فونتِ «فقط رقم» ساخته‌شده از خودِ Estedad (woff2/base64، هر وزن جدا)
+function _apexDigitFontDataEstedad() {
+    return {
+        100: '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',
+        200: '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',
+        300: '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',
+        400: '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',
+        500: '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',
+        600: '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',
+        700: 'd09GMgABAAAAAAZIABAAAAAAC3gAAAXtAAiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGyAcMAZgP1NUQVQqADwRCAqJHIdzATYCJANECyQABCAFhkYHIBckGEAbmAlRVG8qBD8SbJsN64jiuJJNhyRF03SkHuKIl9/jIX6/b2fm3v/WHHHJ0IiuIVI3I8mzh+IpUd3T2sE751/RKnjFCCZpaRC1NJlYU/dtT+bqAd63mBKK1yVQxomPJv8C3Ptfa/XPGdBOQsEG81IomVL+MntiWjGR1Da0k4o2D038dQiNEBuPkCOaw/UqWMOK3czuLdBpDjnG7tOLA1OFqSmAq1hDIfL7Uq5HQ4H80/gcII8BJ9c81+ta5OWcAOyxpeMELAWUTgt8itO/2QG7bZi/av/ED1D7MwkIiF95HQtECaFdYBgDc0RceiYfA5BRPXPyOjhKibBHRo6MsgJo8vWknfNXF1Ib5scppcHLvwQYwiEIax+43wDAIqCPOADiO7AE2ALEDRpL65RCSBFXqPVNrqwsJUUQn8AtkvLz1LG8GIoXy+XMGVM0BDlqBzRJvePEFc6y8cyHiVYk2EsP8lP2VDLduGQ7lbZtl0S9fTt8eMLZ4hpjzl4xuWNUCOp5KWdvfx7LtuhGgWe6A0JqzrhiaUkcxtWEy01yqmnU+F0T26emJ8/xcJZd+BOashD88+fZS8fID68cBl3KFew8exWmLh8nl4bZGBHdojVpYtkpxpyTluPNEes5YsuJMyjnVNVUFX70IZOikSNPnKWPCtWPae+Yok2h6WS+RanEhsNxKpAhNx6d0Db+iTE44BCOkWGabnqyhn+xHqk6/OjV2N/68XHY8aJt2aVHHQJ1yv77z2la9ejL1V9OVRXNL4I9+ri90jXo2jR8LoZMVO5M2xV/2gr7JiYcStut2Cjt/BDLt9LXMoV5Bc0Ee+QDLseVu36gqz3x8ZXWnexQtKcS9mh5u2Qr0dXyobkNmdZ/BULh531J9fkeTkkJu+BPmVCWxw+2hoVkdLNYP2lyl4J+Hft2sZwV7Rt2codYU6NNVQAdVNV96mGnPmxY2LGoZnfyNGbyNPNqnYsCIUOHXvuw6h5TC0tSwsZOPfWg6gnLvJNpPri0D5gsIWOwc2HNgWSKqfITz/EiIP1sNxYk2suKW7IUfTI/a4hjyt3SHurHCxbHjkxInZ80ER+2BaTs7EQd3tHB54qTY3Lg816sFy3ox7CCvr4iFdIUFfSZ+n1ZVJ6MB3z+vYz0d9bfPgpbpnN3itcXbU4j5qg0TDw6Jr6ipTO7EOkWWlDvbiVf0dRoptZmZ079UeGuJkS5aCfys2o91xBrb4Lz3cOuvye0zvb2WjIt1W1FVE9Jcc7d11GJe9AhUkuU5xiJYFvvpn8k+rQ7MsnPKBNnoh+L5Z9kpqe1dQzv7e4cDMIBiW9izcRp7tyYS615OS1oS63d2Nhc3JttaSa9r8WI8Ikw8vMPE9yj2XOYC2+/Tcuqax6xSAJRjXCQp7zIq7x1uQZvR1kOYnVesAzkrDusKHuRF/Wrr+X1kv1m8DmL9s9s4YedmgMC7aMezao5Nb2v9n97KZ8A799oDQB87BlfKmEre6UgGBoJgv3Lla+oEknHfEnJPZBfYRmS2z45dE9ed+n/S6fLyEt1zFessrrdupZR8dTIngFlIs7VAdbAJ/a4q4jagYdAGHo9xNTuMRarXMdqhs+xZZr/sTEjKdhhOEXYE4uiEXttK7VppmSDoDvveGOO/P/ULk4uYR5mRiY+CEwxTDkEzkQP0cbLR09HQwcxyMPJQk/LB9HEz8fEycMLkcfEx8fFq5qSkpGZj4kfRUHLyU5Jw87MQYOip2NWrpJSdrt8fF4zJxudSgplarJtV8M70Pty/iIkStA3fLSZkwOSeXXZ7E1ySURTs3twJuauW9pz0aCYRkAJQzhI8wW9SBayMdPSc/BmCSP8CHTMQ4Nk1Z9mdumFGOCKWSKwtTcTFC3bEaYinaZwZXlDo8IagXPYzHZnFBH24GQJFMlHmwwh7oPqZafW7myo3XBbRs6qWBQHYYxOkvQL0xtJ6XLqOMwPRT/Gv0lu+dRk+HGMrh8B4TC3r3zyI4ijTzgC++B4x30gL05GTCbGe5C/JPaacNoTHAAA',
+        800: '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',
+        900: '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'
+    };
+}
+function _apexDigitFontData() { return _apexDigitFontDataEstedad(); }
+function _apexDigitCss(mode) {
+    if ((mode || _apexDigitMode()) !== 'fa') return '';
+    var d = _apexDigitFontDataEstedad(), out = '';
+    Object.keys(d).forEach(function (w) {
+        out += "@font-face{font-family:'Estedad';font-style:normal;font-weight:" + w + ";font-display:block;" +
+               "src:url(data:font/woff2;base64," + d[w] + ") format('woff2');unicode-range:U+0030-0039;}";
+    });
+    return out;
+}
+// نشانیِ پوشهٔ برنامه (برای لینکِ estedad.css داخلِ سندهای چاپی/PDF)
+function _apexAssetBase() {
+    try { return (location && location.href) ? location.href.replace(/[?#].*$/, '').replace(/[^\/]*$/, '') : ''; } catch (e) { return ''; }
+}
+// اعمال روی خودِ برنامه: <style id="apex-digit-faces"> همیشه آخرین عضوِ <head> است تا
+// پس از estedad.css بیاید و برای ارقام برنده شود.
+function _apexDigitApply() {
+    try {
+        var css = _apexDigitCss(_apexDigitMode());
+        var el = document.getElementById('apex-digit-faces');
+        // پیش‌بارِ Estedad (برای نمودارها/canvas که منتظرِ فونت نمی‌مانند)
+        try { if (document.fonts && document.fonts.load) { document.fonts.load('400 1em Estedad', 'آب 0123456789'); document.fonts.load('700 1em Estedad', 'آب 0123456789'); } } catch (e) {}
+        if (!css) { if (el && el.parentNode) el.parentNode.removeChild(el); return; }
+        if (!el) { el = document.createElement('style'); el.id = 'apex-digit-faces'; }
+        if (el.textContent !== css) el.textContent = css;
+        (document.head || document.documentElement).appendChild(el);   // انتقال به آخرِ head
+    } catch (e) {}
+}
+// اعمال روی یک سندِ HTMLِ چاپی/PDF: لینکِ estedad.css و سپس استایلِ رقم‌ها در آخرِ <head>
+function _apexDigitHtml(html) {
+    var s = String(html == null ? '' : html);
+    try {
+        s = s.replace(/<style id="apex-digit-faces">[\s\S]*?<\/style>/g, '');
+        var css = _apexDigitCss(_apexDigitMode());
+        var add = (s.indexOf('assets/fonts/estedad.css') === -1 ? '<link rel="stylesheet" href="' + _apexAssetBase() + 'assets/fonts/estedad.css">' : '') +
+                  (css ? '<style id="apex-digit-faces">' + css + '</style>' : '');
+        if (!add) return s;
+        if (/<\/head>/i.test(s)) s = s.replace(/<\/head>/i, function () { return add + '</head>'; });
+        else if (/<head[^>]*>/i.test(s)) s = s.replace(/<head[^>]*>/i, function (m) { return m + add; });
+        else if (/<html[^>]*>/i.test(s)) s = s.replace(/<html[^>]*>/i, function (m) { return m + '<head>' + add + '</head>'; });
+        else s = '<head>' + add + '</head>' + s;
+    } catch (e) {}
+    return s;
+}
+if (typeof window !== 'undefined') {
+    window._apexDigitMode = _apexDigitMode; window._apexDigitCss = _apexDigitCss;
+    window._apexDigitApply = _apexDigitApply; window._apexDigitHtml = _apexDigitHtml;
+    window._apexDigitFontData = _apexDigitFontData; window._apexDigitFontDataEstedad = _apexDigitFontDataEstedad;
+}
+
+// =============================================================================
 // ===== سیستم اعداد فارسی / انگلیسی — تنظیمات کاربر =====
 // =============================================================================
 
@@ -33457,9 +33808,10 @@ function getNumberSystem() {
  */
 function setNumberSystem(sys) {
     try {
-        // فقط انگلیسی پشتیبانی می‌شود
-        localStorage.setItem('numberSystem', 'en');
+        // داده همیشه انگلیسی است؛ این تنظیم فقط «شکلِ» رقم را (با فونتِ رقم) عوض می‌کند
+        localStorage.setItem('numberSystem', (sys === 'fa') ? 'fa' : 'en');
         applyNumberSystemToDocument();
+        _apexDigitApply();
     } catch(e) { console.error('setNumberSystem error:', e); }
 }
 
@@ -41073,7 +41425,9 @@ function ndRenderRecent() {
             if (ta === tbb) return (parseFloat(b && b.id) || 0) - (parseFloat(a && a.id) || 0);
             return ta < tbb ? 1 : -1;
         });
-        rows = txs.slice(0, 8);
+        // تا ۱۰۰ ردیف آماده می‌شود؛ ۸ ردیفِ اول همیشه دیده می‌شوند و بقیه فقط در دسکتاپ
+        // (حالتِ nd-fit) به اندازه‌ای که بدونِ اسکرول جا شوند نمایش داده می‌شوند (_ndFillRecent).
+        rows = txs.slice(0, 100);
     } catch (e) { rows = []; }
 
     if (!rows.length) {
@@ -41081,7 +41435,7 @@ function ndRenderRecent() {
         return;
     }
     var html = '';
-    rows.forEach(function (t) {
+    rows.forEach(function (t, _ri) {
         var type = t.type || '';
         if (type === 'برگشت') type = 'برگشت از ' + (t.returnType || '');
         var party = t.personName || t.customerName || t.supplierName || t.partyName || '---';
@@ -41089,7 +41443,7 @@ function ndRenderRecent() {
         var cur = ndCurLabel(t.currency || ndBaseCode());
         var st = t.status || (t.paid === false ? 'قرضه' : 'تسویه');
         var cls = 'nd-tx-' + (type.indexOf('فروش') === 0 ? 'sale' : (type.indexOf('خرید') === 0 ? 'buy' : (type.indexOf('برگشت') === 0 ? 'ret' : 'other')));
-        html += '<tr onclick="if(typeof viewTransaction===\'function\')viewTransaction(' + (t.id) + ')">'
+        html += '<tr' + (_ri >= 8 ? ' class="nd-recent-extra" style="display:none"' : '') + ' onclick="if(typeof viewTransaction===\'function\')viewTransaction(' + (t.id) + ')">'
              +   '<td><span class="nd-tx-type ' + cls + '">' + ndEsc(type) + '</span></td>'
              +   '<td class="nd-tx-party">' + ndEsc(party) + '</td>'
              +   '<td class="nd-tx-amt">' + ndNum(amt) + ' ' + ndEsc(cur) + '</td>'
@@ -41097,7 +41451,34 @@ function ndRenderRecent() {
              + '</tr>';
     });
     tb.innerHTML = html;
+    // اگر داشبورد در حالتِ جاگیریِ دسکتاپ است، کارت دوباره پر شود
+    try { var _g = document.getElementById('nd-grid'); if (_g && _g.classList.contains('nd-fit')) setTimeout(_ndFillRecent, 0); } catch (e) {}
 }
+// ردیف‌های اضافهٔ «آخرین معامله» پنهان می‌شوند (پیش از اندازه‌گیریِ داشبورد / موبایل)
+function _ndRecentReset() {
+    try {
+        var tb = document.getElementById('nd-recent-body'); if (!tb) return;
+        Array.prototype.forEach.call(tb.querySelectorAll('tr.nd-recent-extra'), function (r) { r.style.display = 'none'; });
+    } catch (e) {}
+}
+// دسکتاپ (nd-fit): کارت به تعدادِ ردیف‌هایی پر می‌شود که بدونِ اسکرول جا می‌شوند
+function _ndFillRecent() {
+    try {
+        var grid = document.getElementById('nd-grid');
+        var tb = document.getElementById('nd-recent-body');
+        var body = document.querySelector('#dashboard .nd-recent .nd-card-body');
+        if (!grid || !tb || !body) return;
+        _ndRecentReset();
+        if (!grid.classList.contains('nd-fit') || (window.innerWidth || 0) <= 768) return;
+        if (body.scrollHeight > body.clientHeight + 1) return;          // همان ۸ ردیف هم جا نمی‌شود
+        var extra = tb.querySelectorAll('tr.nd-recent-extra');
+        for (var i = 0; i < extra.length; i++) {
+            extra[i].style.display = '';
+            if (body.scrollHeight > body.clientHeight + 1) { extra[i].style.display = 'none'; break; }
+        }
+    } catch (e) {}
+}
+if (typeof window !== 'undefined') { window._ndRecentReset = _ndRecentReset; window._ndFillRecent = _ndFillRecent; }
 
 // ── جستجوی سراسری روی تمام بخش‌ها ────────────────────────────────────────────
 //  ساختار و استایلِ دراپ‌داون دقیقاً همانِ «جستجوی ذخایر/خدمات در فورمِ فروش فوری» است؛
@@ -41307,18 +41688,104 @@ function ndCloseSearchOnOutside(e) {
 }
 
 // ── آیکنِ پشتیبان‌گیری هدر: مستقیم پنجرهٔ پشتیبان/گوگل‌درایو، بدونِ بازکردنِ سایدبار ──
+// ── آیکنِ ریفریش کنارِ جستجوی داشبورد ─────────────────────────────────────────
+//  همهٔ محاسبات از دادهٔ خام بازسازی و همهٔ بخش‌ها تازه می‌شوند. اگر حسابِ ابری فعال
+//  باشد، پیش از آن آخرین تغییراتِ سرور هم گرفته می‌شود.
+function ndRefreshAll(btn) {
+    if (btn && btn.disabled) return;
+    var ic = btn ? btn.querySelector('i') : null;
+    if (btn) btn.disabled = true;
+    if (ic) ic.classList.add('fa-spin');
+    var pulled = 0;
+    var finish = function () {
+        try { if (typeof rebuildAllDerivedData === 'function') rebuildAllDerivedData(); } catch (e) {}
+        try { if (typeof _fifoProfitCache !== 'undefined') { _fifoProfitCache.sig = null; _fifoProfitCache.maps = null; } } catch (e) {}
+        try { if (typeof refreshAllAppData === 'function') refreshAllAppData(); } catch (e) {}
+        try { if (typeof ndRenderDashboard === 'function') ndRenderDashboard(); } catch (e) {}
+        try { if (typeof _renderDashboardStoreInfo === 'function') _renderDashboardStoreInfo(); } catch (e) {}
+        try { if (typeof applyNumberSystemToDocument === 'function') applyNumberSystemToDocument(); } catch (e) {}
+        if (ic) ic.classList.remove('fa-spin');
+        if (btn) btn.disabled = false;
+        try { if (typeof showToast === 'function') showToast(pulled > 0 ? ('اطلاعات تازه شد ✓ (' + pulled + ' تغییر از سرور)') : 'اطلاعات تازه شد ✓', 'success'); } catch (e) {}
+    };
+    var p = Promise.resolve(0);
+    try {
+        var S = window.JouyaSync;
+        if (S && typeof S.pullNow === 'function') {
+            p = Promise.race([Promise.resolve(S.pullNow()), new Promise(function (r) { setTimeout(function () { r(0); }, 15000); })]);
+        }
+    } catch (e) { p = Promise.resolve(0); }
+    p.then(function (n) { pulled = parseInt(n, 10) || 0; }, function () {}).then(function () { setTimeout(finish, 30); });
+}
+if (typeof window !== 'undefined') window.ndRefreshAll = ndRefreshAll;
+
+// ── پشتیبان‌گیری از هدرِ داشبورد ───────────────────────────────────────────────
+//  پنجره‌ای با «پشتیبان ایمیل» و «Google Drive» و زمانِ آخرین پشتیبانِ هرکدام.
+//  (بخشِ پشتیبان‌گیری از سایدبارِ تنظیمات پنهان شد.)
 function ndOpenBackupQuick() {
-    // ۱) اگر ماژولِ گوگل‌درایو در دسترس باشد، مستقیم همان باز می‌شود
-    var cands = ['openDriveBackup', 'DriveBackup', 'driveBackup', 'GoogleDriveBackup', 'gdriveBackup', 'openGoogleDrive'];
-    for (var i = 0; i < cands.length; i++) {
-        var o = window[cands[i]];
-        if (typeof o === 'function') { try { o(); return; } catch (e) {} }
-        if (o && typeof o.openModal === 'function') { try { o.openModal(); return; } catch (e) {} }   // ← DriveBackup.openModal (گوگل‌درایو)
-        if (o && typeof o.open === 'function') { try { o.open(); return; } catch (e) {} }
-        if (o && typeof o.show === 'function') { try { o.show(); return; } catch (e) {} }
-    }
-    // ۲) در غیرِ آن، همان محتوای «پشتیبان‌گیری» سایدبار در یک پنجرهٔ مستقل باز می‌شود
-    ndOpenBackupModal();
+    try {
+        var old = document.getElementById('nd-backup-modal');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+        var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+        var when = function (k) {
+            var v = null; try { v = localStorage.getItem(k); } catch (e) {}
+            if (!v) return 'هنوز پشتیبان گرفته نشده';
+            try { if (typeof formatAfghanDateTime === 'function') { var f = formatAfghanDateTime(v); if (f) return f; } } catch (e) {}
+            try { var d = new Date(isNaN(+v) ? v : +v); if (!isNaN(d.getTime())) return d.toLocaleString('en-GB'); } catch (e) {}
+            return String(v);
+        };
+        var email = '';
+        try { var acc = (window.AuthDB && AuthDB.getAccount) ? AuthDB.getAccount() : null; email = (acc && acc.email) || ''; } catch (e) {}
+        var driveSvg = '<svg width="20" height="20" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg">' +
+            '<path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>' +
+            '<path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>' +
+            '<path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>' +
+            '<path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>' +
+            '<path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>' +
+            '<path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg>';
+        var card =
+            '<div class="auth-unified-backup-card nd-backup-card">' +
+                (email ? '<div class="aubc-header"><div class="aubc-icon"><i class="fas fa-cloud-upload-alt"></i></div><div class="aubc-titles"><div class="aubc-title">پشتیبان‌گیری</div><div class="aubc-subtitle"><i class="fas fa-envelope"></i> ' + esc(email) + '</div></div></div>' : '') +
+                '<div class="aubc-options">' +
+                    '<button type="button" class="aubc-option-btn" data-nd-bk="email">' +
+                        '<div class="aubc-opt-icon aubc-icon-email"><i class="fas fa-envelope"></i></div>' +
+                        '<div class="aubc-opt-texts"><div class="aubc-opt-title">پشتیبان ایمیل</div><div class="aubc-opt-meta">آخرین: ' + esc(when('jouya_last_email_backup')) + '</div></div>' +
+                        '<i class="fas fa-chevron-left aubc-arrow"></i>' +
+                    '</button>' +
+                    '<button type="button" class="aubc-option-btn" data-nd-bk="drive">' +
+                        '<div class="aubc-opt-icon aubc-icon-drive">' + driveSvg + '</div>' +
+                        '<div class="aubc-opt-texts"><div class="aubc-opt-title">Google Drive</div><div class="aubc-opt-meta">آخرین: ' + esc(when('jouya_last_gdrive_backup')) + '</div></div>' +
+                        '<i class="fas fa-chevron-left aubc-arrow"></i>' +
+                    '</button>' +
+                '</div>' +
+            '</div>';
+        var ov = document.createElement('div');
+        ov.id = 'nd-backup-modal';
+        ov.className = 'nd-modal-overlay';
+        ov.innerHTML =
+            '<div class="nd-modal" role="dialog" aria-modal="true">' +
+                '<div class="nd-modal-head">' +
+                    '<span><i class="fas fa-cloud-arrow-up"></i> پشتیبان‌گیری</span>' +
+                    '<button type="button" class="nd-modal-x" onclick="ndCloseBackupModal()" title="بستن"><i class="fas fa-times"></i></button>' +
+                '</div>' +
+                '<div class="nd-modal-body">' + card + '</div>' +
+            '</div>';
+        ov.addEventListener('click', function (e) {
+            if (e.target === ov) { ndCloseBackupModal(); return; }
+            var b = e.target && e.target.closest ? e.target.closest('[data-nd-bk]') : null;
+            if (!b) return;
+            var kind = b.getAttribute('data-nd-bk');
+            ndCloseBackupModal();
+            if (kind === 'email') {
+                if (window.AuthUI && typeof AuthUI.openBackupModal === 'function') AuthUI.openBackupModal();
+                else ndOpenBackupModal();
+            } else {
+                if (window.DriveBackup && typeof DriveBackup.openModal === 'function') DriveBackup.openModal();
+                else ndOpenBackupModal();
+            }
+        });
+        document.body.appendChild(ov);
+    } catch (e) { try { ndOpenBackupModal(); } catch (_) {} }
 }
 function ndOpenBackupModal() {
     var old = document.getElementById('nd-backup-modal');
@@ -42914,6 +43381,7 @@ function ndFitDashboardHeight() {
         if ((window.innerWidth || 0) <= 768 || !active) {   // موبایل یا بخشِ دیگر: بدونِ قفل
             grid.style.height = ''; grid.style.maxHeight = '';
             ndClearDashScale(grid);
+            _ndRecentReset();                                 // موبایل: همان ۸ ردیفِ قبلی
             grid.classList.remove('nd-fit');
             if (body) body.classList.remove('nd-dash-fit');
             return;
@@ -42924,6 +43392,7 @@ function ndFitDashboardHeight() {
 
         // اندازه‌گیری‌ها باید «بدونِ مقیاس» انجام شوند، وگرنه نتیجه غلط می‌شود.
         ndClearDashScale(grid);
+        _ndRecentReset();     // اندازه‌گیری با همان ۸ ردیفِ پایه؛ پرکردن پس از نشستنِ چیدمان
 
         var top = grid.getBoundingClientRect().top;
         var vh  = window.innerHeight || document.documentElement.clientHeight || 0;
@@ -43006,6 +43475,9 @@ function ndFitDashboardHeight() {
 
         // پس از نشستنِ بلندی، اندازهٔ متنِ برند دوباره سنجیده شود
         try { ndFitBrandText(); } catch (e) {}
+        // «آخرین معامله» به اندازهٔ فضای واقعی پر شود (پس از اصلاحِ بومِ نمودار)
+        _ndFillRecent();
+        setTimeout(_ndFillRecent, 140);
     } catch (e) {}
 }
 function ndBindFit() {
@@ -43739,7 +44211,7 @@ function _jsrvDoPull(r) {
         try { if (typeof showMessage === 'function') showMessage('دریافت کامل شد', 'اطلاعاتِ این دستگاه با نسخهٔ سرور یکی شد. صفحه تازه می‌شود.'); } catch (e) {}
         // تازه‌سازی لازم است: نماها و شمارنده‌ها از localStorage خوانده شده‌اند و
         // حالا کلِ دادهٔ زیرِ آن‌ها عوض شده است.
-        setTimeout(function () { try { location.reload(); } catch (e) {} }, 1400);
+        setTimeout(function () { try { (window.JouyaStore && JouyaStore.reloadSafe ? JouyaStore.reloadSafe() : location.reload()); } catch (e) {} }, 1400);
     }).catch(function (e) {
         try { if (typeof J.start === 'function') J.start(); } catch (e2) {}
         var why = (e && e.message) || String(e);
@@ -44024,7 +44496,7 @@ function _cbtxSalesCardHtml(o) {
                     '<div class="sales-card-amount">مبلغ: <span>' + (o.amountText || '-') + '</span></div>' +
                     '<div class="sales-card-remaining ' + (o.totalCls || 'is-settled') + '">مبلغ کل: <span>' + (o.totalText || '-') + '</span></div>' +
                     '<div class="sales-card-actions">' +
-                        '<span class="sales-card-status-badge ' + (o.badgeCls || 'badge-black') + '"><i class="fas fa-check"></i></span>' +
+                        // نشانِ تیک حذف شد؛ جهتِ معامله با رنگِ خطِ کنارِ کارت پیداست (ورودی سبز / خروجی سرخ)
                         (o.kebabHtml || '') +
                     '</div>' +
                 '</div>' +

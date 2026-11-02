@@ -164,7 +164,7 @@
         try { localStorage.setItem('__jouya_demo_goto_register', '1'); } catch (e) {}
         var b = document.getElementById('jouya-demo-badge'); if (b) b.remove();
         var lk = document.getElementById('jouya-demo-lock'); if (lk) lk.remove();
-        try { location.reload(); } catch (e) {}
+        try { (window.JouyaStore && JouyaStore.reloadSafe ? JouyaStore.reloadSafe() : location.reload()); } catch (e) {}
     }
     if (typeof window !== 'undefined') window.__jouyaDemoExit = _exitDemoToRegister;
 

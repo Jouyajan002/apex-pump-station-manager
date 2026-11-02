@@ -170,6 +170,9 @@ body.dark-mode .ps-sum-chip { background: #1e293b; border-color: rgba(255,255,25
 body.dark-mode .ps-sum-chip b { color: #e2e8f0; }
 #meter-readings-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
 #meter-readings-table td { padding: 0 !important; border: none !important; background: transparent !important; }
+/* سلولِ کارتِ قرائت: سقفِ بلندیِ ۴۶pxِ سراسریِ td (style.css) کارت را می‌برید — برداشته شد */
+#meter-readings-table tr.ps-reading-row { height: auto !important; max-height: none !important; }
+#meter-readings-table tr.ps-reading-row > td { display: block; width: 100%; height: auto !important; max-height: none !important; overflow: visible !important; white-space: normal !important; }
 .ps-reading-card {
     display: grid; grid-template-columns: 1.6fr repeat(7, 1fr) 40px; gap: 8px; align-items: center;
     background: #fff; border: 1px solid var(--ps-line); border-radius: 12px; padding: 10px 14px; cursor: pointer;
@@ -290,3 +293,97 @@ body.dark-mode .ps-rp-table td { border-color: rgba(255,255,255,.1); }
 #sales-items-table.ps-items-table,
 #purchase-items-table.ps-items-table { min-width: 0 !important; width: 100% !important; display: block !important; }
 .ps-items-table > tbody { display: block !important; width: 100% !important; }
+
+/* ═══ جدولِ اقلامِ برگشت از فروش/خرید: عرضِ منعطفِ ستون‌ها (pump-station.js → flexCols) ═══ */
+.apex-flex-cols { table-layout: fixed; }
+.apex-flex-cols td, .apex-flex-cols th { overflow: hidden; }
+.apex-flex-cols .bill-cell-input { min-width: 0; }
+@media (max-width: 768px) {
+    .bill-items-box .apex-flex-wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+    .apex-flex-cols thead th, .apex-flex-cols tbody td { padding-left: 4px !important; padding-right: 4px !important; }
+}
+
+/* ═══ «اطلاعات فروش/خرید» در موبایل: همهٔ ستون‌های اقلام در یک نما (_apexTxdFit) ═══ */
+@media (max-width: 768px) {
+    .txd-items-table.apex-txd-fit { table-layout: fixed; width: 100%; min-width: 0 !important; font-size: .74rem; }
+    .txd-items-table.apex-txd-fit thead th { padding: 7px 3px; font-size: .7rem; white-space: nowrap; }
+    .txd-items-table.apex-txd-fit tbody td { padding: 7px 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .txd-items-table.apex-txd-fit tbody td:nth-child(2) { white-space: normal; word-break: break-word; text-align: right; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   جدولِ اقلامِ بل فروش/خرید و برگشت از فروش/خرید — ظاهرِ ساده مثلِ اکسل
+   فیلدها دیگر داخلِ قابِ جداگانه نیستند: هر فیلد یک «خانه» است با خطِ نازکِ میانِ
+   خانه‌ها، بدونِ کادر/سایه/گوشهٔ گرد؛ هنگامِ فوکوس دورِ همان خانه خط می‌افتد.
+   فقط ظاهر — هیچ منطق، کلاس یا فیلدی تغییر نکرده است. (حالتِ تاریک هم پوشش داده شده)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.ps-items-table tbody tr.ps-row { gap: 0; padding: 0; border-bottom: none; }
+.ps-items-table tbody tr.ps-row:last-child { border-bottom: none; }
+.ps-items-table tbody tr.ps-row > td.ps-num-cell {
+    padding: 8px 0 !important; gap: 6px; justify-content: flex-start;
+    border-left: 1px solid var(--bill-line, var(--ps-line)) !important;
+}
+.ps-num { width: auto; height: auto; border-radius: 0; background: transparent; color: var(--ps-navy); font-size: 1rem; font-weight: 800; }
+.ps-row-add { width: 26px; height: 26px; font-size: .78rem; }
+.ps-row-del { width: 24px; height: 24px; font-size: .68rem; }
+.ps-grid { gap: 0 !important; background: transparent; }
+.ps-f, .ps-f:focus-within {
+    border: 0 !important; border-radius: 0 !important; box-shadow: none; margin: 0;
+    border-left: 1px solid var(--bill-line, var(--ps-line)) !important;
+    border-bottom: 1px solid var(--bill-line, var(--ps-line)) !important;
+    background: var(--bill-card, #fff); min-height: 44px; padding: 0 10px;
+}
+.ps-f:focus-within { box-shadow: inset 0 0 0 2px var(--ps-navy) !important; position: relative; z-index: 1; }
+.ps-f > i { color: #94a3b8; font-size: .9rem; width: 16px; }
+.ps-f input, .ps-f select { padding: 11px 2px; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; }
+.ps-f-ro { background: #f8fafc; }
+@media (max-width: 520px) {
+    .ps-f, .ps-f:focus-within { min-height: 42px; padding: 0 8px; }
+    .ps-f input, .ps-f select { padding: 9px 2px; }
+}
+body.dark-mode .ps-f { border-color: rgba(255,255,255,.12) !important; }
+body.dark-mode .ps-f { background: #1e293b; }
+body.dark-mode .ps-f-ro { background: #172033; }
+body.dark-mode .ps-f:focus-within { box-shadow: inset 0 0 0 2px #60a5fa !important; }
+body.dark-mode .ps-f > i { color: #64748b; }
+body.dark-mode .ps-items-table tbody tr.ps-row,
+body.dark-mode .ps-items-table tbody tr.ps-row > td.ps-num-cell { border-color: rgba(255,255,255,.12) !important; }
+body.dark-mode .ps-num { color: #93c5fd; }
+
+/* برگشت از فروش / برگشت از خرید: خانه‌های جدول بدونِ کادرِ دورِ فیلد، خط دورِ خانه هنگامِ فوکوس */
+#sr-items-table tbody td, #pr-items-table tbody td {
+    border-left: 1px solid #e7ebf1; border-bottom: 1px solid #e7ebf1; padding: 2px 4px; position: relative;
+}
+#sr-items-table tbody td:last-child, #pr-items-table tbody td:last-child { border-left: none; }
+#sr-items-table .bill-cell-input, #pr-items-table .bill-cell-input,
+#sr-items-table .sr-product-search, #pr-items-table .pr-product-search {
+    border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; padding: 9px 4px;
+}
+#sr-items-table tbody td:focus-within, #pr-items-table tbody td:focus-within { box-shadow: inset 0 0 0 2px var(--ps-navy, #1e3a5f); z-index: 1; }
+body.dark-mode #sr-items-table tbody td, body.dark-mode #pr-items-table tbody td { border-color: rgba(255,255,255,.1); }
+body.dark-mode #sr-items-table tbody td:focus-within, body.dark-mode #pr-items-table tbody td:focus-within { box-shadow: inset 0 0 0 2px #60a5fa; }
+.ps-items-table tbody tr.ps-row > td.ps-fields-cell { background: var(--bill-card, #fff) !important; }
+body.dark-mode .ps-items-table tbody tr.ps-row > td.ps-fields-cell { background: #1e293b !important; }
+
+/* ═══ برگشت از فروش/خرید: ستونِ «...» با ⊕ ⊖ ⊗ (script.js → _retRowActionsHtml) ═══ */
+#sr-items-table td.ret-row-actions, #pr-items-table td.ret-row-actions { text-align: center; white-space: nowrap; overflow: visible; }
+.ret-acts { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.ret-act {
+    width: 20px; height: 20px; padding: 0; margin: 0; border-radius: 50%;
+    border: 1.4px solid #94a3b8; background: transparent; color: #64748b;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 9px; line-height: 1; cursor: pointer;
+}
+.ret-act:hover { border-color: var(--ps-navy, #1e3a5f); color: var(--ps-navy, #1e3a5f); }
+.ret-act-del:hover { border-color: #dc2626; color: #dc2626; }
+body.dark-mode .ret-act { border-color: #64748b; color: #94a3b8; }
+body.dark-mode .ret-act:hover { border-color: #93c5fd; color: #93c5fd; }
+body.dark-mode .ret-act-del:hover { border-color: #f87171; color: #f87171; }
+@media (max-width: 768px) {
+    .ret-acts { gap: 5px; }
+    .ret-act { width: 24px; height: 24px; font-size: 10px; }
+}
+
+/* فلش‌های بالا/پایینِ داخلِ فیلدهای عددی در کلِ برنامه حذف شد */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }

@@ -881,7 +881,7 @@
                             تعداد بخش‌های بازیابی‌شده: <strong>${count}</strong>
                         </p>
                         ${localOnlyNote}
-                        <button class="backup-close-btn" onclick="location.reload()" style="width:100%;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:11px;padding:12px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;">بارگذاری مجدد صفحه</button>
+                        <button class="backup-close-btn" onclick="(window.JouyaStore && JouyaStore.reloadSafe ? JouyaStore.reloadSafe() : location.reload())" style="width:100%;background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:11px;padding:12px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;">بارگذاری مجدد صفحه</button>
                     `;
                 }
             } catch (e) {

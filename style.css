@@ -94,7 +94,7 @@ body.dark-mode {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
-    font-family: 'Vazirmatn', sans-serif;
+    font-family: Estedad, 'Vazirmatn', sans-serif;
     outline: none;
 }
 
@@ -2036,7 +2036,7 @@ body, .main-content {
     padding: 11px 14px;
     border: none;
     border-radius: 10px;
-    font-family: 'Vazirmatn', sans-serif;
+    font-family: Estedad, 'Vazirmatn', sans-serif;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
@@ -2289,7 +2289,7 @@ body, .main-content {
     background: var(--bg-input);
     color: var(--text-main);
     font-size: 0.93rem;
-    font-family: 'Vazirmatn', sans-serif;
+    font-family: Estedad, 'Vazirmatn', sans-serif;
     transition: var(--transition);
     width: 100%;
 }
@@ -3236,7 +3236,7 @@ section#expenses .btn-icon:hover,
     color: #f1f5f9;
     font-size: 0.9rem;
     margin-bottom: 10px;
-    font-family: 'Vazirmatn', sans-serif;
+    font-family: Estedad, 'Vazirmatn', sans-serif;
     transition: border-color 0.2s;
     direction: rtl;
 }
@@ -3266,7 +3266,7 @@ section#expenses .btn-icon:hover,
     border: none;
     border-radius: 9px;
     font-size: 0.9rem;
-    font-family: 'Vazirmatn', sans-serif;
+    font-family: Estedad, 'Vazirmatn', sans-serif;
     cursor: pointer;
     margin-bottom: 8px;
     font-weight: 600;
@@ -3458,7 +3458,7 @@ body.dark-mode .filter-menu label {
     border-radius: 20px;
     background: transparent;
     color: var(--text-secondary, #94a3b8);
-    font-family: Vazirmatn, sans-serif;
+    font-family: Estedad, Vazirmatn, sans-serif;
     font-size: 0.78rem;
     cursor: pointer;
     transition: all 0.18s;
@@ -6086,7 +6086,7 @@ body::-webkit-scrollbar,
     border-radius: 10px;
     background: #f8fafc;
     color: #475569;
-    font-family: Vazirmatn, sans-serif;
+    font-family: Estedad, Vazirmatn, sans-serif;
     font-weight: 700;
     font-size: 0.85rem;
     cursor: pointer;
@@ -7090,7 +7090,7 @@ body.dark-mode .app-lock-input { background: #0f172a; color: #f1f5f9; border-col
   overflow: hidden;
 }
 .cbtx-card-row.cbtx-income  { border-left-color: #16a34a; }
-.cbtx-card-row.cbtx-expense { border-left-color: #ea8a1e; }
+.cbtx-card-row.cbtx-expense { border-left-color: #dc2626; }
 .cbtx-card-row.cbtx-neutral { border-left-color: #94a3b8; }
 
 .cbtx-cell {
@@ -7636,7 +7636,7 @@ body.dark-mode .exp-empty-row td, body.dark-mode .emp-empty-row td { background:
     padding: 10px;
     box-shadow: 0 18px 40px -8px rgba(0, 0, 0, 0.55);
     direction: rtl;
-    font-family: 'Vazirmatn', sans-serif;
+    font-family: Estedad, 'Vazirmatn', sans-serif;
     animation: dscPop 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 @keyframes dscPop { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
@@ -9298,6 +9298,16 @@ body.dark-mode {
     position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
     color: var(--nd-text-soft); font-size: .95rem; pointer-events: none;
 }
+/* آیکنِ ریفریش: سمتِ راستِ جستجو، ظریف و بدونِ پس‌زمینه */
+#dashboard .nd-search-wrap .nd-search-input { padding-right: 36px; }
+#dashboard .nd-search-refresh {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    width: 24px; height: 24px; padding: 0; margin: 0; border: 0; background: transparent;
+    color: var(--nd-text-soft); font-size: .9rem; cursor: pointer; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
+}
+#dashboard .nd-search-refresh:hover { color: #6366f1; }
+#dashboard .nd-search-refresh:disabled { cursor: progress; opacity: .7; }
 /* دراپ‌داونِ نتایج — همان ظاهرِ جستجوی اجناسِ فورمِ فروش فوری */
 #dashboard .nd-search-results {
     position: absolute; top: 100%; right: 0; left: 0; z-index: 99999;
@@ -9481,7 +9491,7 @@ body.dark-mode {
     border: 1px solid var(--nd-border); border-radius: 12px;
     box-shadow: 0 14px 40px rgba(2, 6, 23, .3);
     padding: 10px; direction: rtl;
-    font-family: 'Vazirmatn', Tahoma, sans-serif;
+    font-family: Estedad, 'Vazirmatn', Tahoma, sans-serif;
 }
 .nd-profile-pop .nd-pp-head {
     display: flex; align-items: center; gap: 10px;
@@ -9504,7 +9514,7 @@ body.dark-mode {
 .nd-modal-overlay {
     position: fixed; inset: 0; z-index: 2147483100;
     background: rgba(2, 6, 23, .55); display: flex; align-items: center; justify-content: center;
-    padding: 16px; direction: rtl; font-family: 'Vazirmatn', Tahoma, sans-serif;
+    padding: 16px; direction: rtl; font-family: Estedad, 'Vazirmatn', Tahoma, sans-serif;
 }
 .nd-modal {
     width: 100%; max-width: 480px; max-height: 86vh; display: flex; flex-direction: column;
@@ -10428,7 +10438,7 @@ html, body { overflow-anchor: none; }
 /* نوارِ کناریِ رنگی بر اساسِ جهتِ معامله (همان رنگ‌های قبلیِ این لیست) */
 .cbtx-row .sales-card { border-left: 6px solid #94a3b8; }
 .cbtx-row.cbtx-income  .sales-card { border-left-color: #16a34a; }
-.cbtx-row.cbtx-expense .sales-card { border-left-color: #ea8a1e; }
+.cbtx-row.cbtx-expense .sales-card { border-left-color: #dc2626; }
 .cbtx-row.cbtx-neutral .sales-card { border-left-color: #94a3b8; }
 
 /* انیمیشنِ فقط opacity — مانندِ لیستِ معاملاتِ شخص */

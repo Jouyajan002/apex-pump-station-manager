@@ -1422,7 +1422,7 @@
 '    body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
 '    .no-print { display: none !important; }' +
 '}' +
-'body { font-family: Tahoma, "Vazirmatn", Arial, sans-serif; font-size: 12px; color: #1a2533; background: #f0f4f8; direction: rtl; padding: 10mm; }' +
+'body { font-family: Estedad, Tahoma, "Vazirmatn", Arial, sans-serif; font-size: 12px; color: #1a2533; background: #f0f4f8; direction: rtl; padding: 10mm; }' +
 '.rep-wrap { background: #fff; border-radius: 8px; overflow: hidden; border: 2px solid ' + headerColor + '; max-width: 190mm; margin: 0 auto; }' +
 '.rep-header { background: ' + headerColor + '; color: #fff; display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; gap: 8px; }' +
 '.rep-store-name { font-size: 18px; font-weight: 900; }' +

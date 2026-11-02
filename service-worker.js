@@ -14,7 +14,7 @@
 // باعث می‌شود نسخهٔ وب/PWA در همان نخستین باز شدن، index.htmlِ تازه را بگیرد نه نسخهٔ کش‌شده.
 // پیشوندِ اختصاصیِ این برنامه — کش‌های APEX Store Manager (حتی روی همان دامنه) دست نمی‌خورند
 var SW_PREFIX = 'apexps-';
-var SW_VERSION = SW_PREFIX + 'v1.0.0';
+var SW_VERSION = SW_PREFIX + 'v1.0.1';   // موتورِ حافظهٔ IndexedDB + فونتِ Estedad (estedad.css)
 var CACHE = SW_VERSION;
 
 // فهرستِ هستهٔ اپ — پیش‌ذخیره (best-effort؛ نبودِ یک فایل نصب را خراب نمی‌کند)
@@ -23,6 +23,7 @@ var CORE = [
   './index.html',
   './manifest.webmanifest',
   // CSS
+  './assets/fonts/estedad.css',
   './assets/fonts/vazirmatn.css',
   './assets/css/all.min.css',
   './assets/css/persian-datepicker.min.css',

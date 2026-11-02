@@ -106,6 +106,24 @@
     }
     document.addEventListener('click', cashboxKebabTapBridge, true);
 
+    /* ── ۱-الف-۲) دکمهٔ ⋮ کارتِ سوم (و هر کارتِ) امور مالی › حساب‌ها در موبایل ──
+     *  روی لمس، مرورگر یک mouseenterِ مصنوعی هم روی .fin-cb-kebab می‌فرستد که منو را
+     *  (از راهِ onmouseenter) باز و بلافاصله با کلیکِ همین لمس بسته/جابه‌جا می‌کرد. زمانِ
+     *  آخرین لمس ثبت می‌شود و mouseenterِ مصنوعی تا ۱۵۰۰ms بعد از لمس، فقط در موبایل،
+     *  مسدود می‌شود؛ بازکردنِ منو را همان پلِ کلیکِ بالا انجام می‌دهد. */
+    var _lastTouchAt = 0;
+    var _markTouch = function () { _lastTouchAt = Date.now(); };
+    try { document.addEventListener('touchstart', _markTouch, { capture: true, passive: true }); } catch (_) { document.addEventListener('touchstart', _markTouch, true); }
+    document.addEventListener('pointerdown', function (e) { if (e && e.pointerType === 'touch') _markTouch(); }, true);
+    document.addEventListener('mouseenter', function (e) {
+        try {
+            if (!isMobile()) return;
+            var t = e.target;
+            if (!t || !t.classList || !t.classList.contains('fin-cb-kebab')) return;
+            if (Date.now() - _lastTouchAt < 1500) { e.stopImmediatePropagation(); e.stopPropagation(); }
+        } catch (_) {}
+    }, true);
+
     /* ───────────────────────────────────────────────────────────────────────
      * ۱-ب) بستنِ خودکارِ منوهای عملیات (سه‌نقطه: ویرایش/حذف/…) روی لمس
      *  مشکل: منوهای شناورِ برنامه با «hover» بسته می‌شوند (mouseleave/mouseover).

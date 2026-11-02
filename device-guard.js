@@ -128,7 +128,7 @@
             el.style.cssText = 'position:fixed;inset:0;z-index:2147483600;' +
                 'background:radial-gradient(1200px 800px at 50% -10%, #1e3a5f 0%, #0f172a 60%, #0b1220 100%);' +
                 'display:flex;align-items:center;justify-content:center;' +
-                'font-family:Vazirmatn,inherit;color:#e2e8f0;padding:24px;';
+                'font-family:Estedad,Vazirmatn,Tahoma,sans-serif;color:#e2e8f0;padding:24px;';
             (document.body || document.documentElement).appendChild(el);
         }
         el.innerHTML =

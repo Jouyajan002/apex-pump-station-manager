@@ -5,6 +5,59 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- جداسازیِ حافظهٔ محلیِ این برنامه از APEX Store Manager — باید اولین اسکریپت باشد -->
     <script src="apex-ns.js"></script>
+    <!-- موتورِ حافظهٔ IndexedDB (رفعِ سقفِ ۵ مگابایتیِ localStorage) — بلافاصله بعد از apex-ns.js -->
+    <meta name="apex-storage" content="indexeddb">
+    <script src="jouya-store.js"></script>
+    <script>
+    /* ═══ نگه‌داشتنِ DOMContentLoaded/load تا پایانِ بوت ═══
+       اسکریپت‌های برنامه (type="text/apex-boot") پس از آماده‌شدنِ حافظه اجرا می‌شوند. تا آن
+       زمان شنونده‌های DOMContentLoaded/load نگه داشته و پس از اجرای همهٔ اسکریپت‌ها به همان
+       ترتیب آزاد می‌شوند؛ document.readyState هم تا پایانِ بوت «loading» می‌ماند، پس رفتارِ
+       برنامه دقیقاً مثلِ بارگذاریِ معمولی است. */
+    (function () {
+        'use strict';
+        if (window.__apexBoot || typeof EventTarget === 'undefined') return;
+        var ET = EventTarget.prototype, add = ET.addEventListener, rem = ET.removeEventListener;
+        var held = { dcl: [], load: [] }, booting = true, dclFired = false, loadFired = false;
+        add.call(document, 'DOMContentLoaded', function () { dclFired = true; });
+        add.call(window, 'load', function () { loadFired = true; });
+        function which(t, type) {
+            if (type === 'DOMContentLoaded' && (t === document || t === window)) return 'dcl';
+            if (type === 'load' && t === window) return 'load';
+            return null;
+        }
+        ET.addEventListener = function (type, fn) {
+            if (booting && fn) { var w = which(this, type); if (w) { held[w].push({ t: this, fn: fn }); return; } }
+            return add.apply(this, arguments);
+        };
+        ET.removeEventListener = function (type, fn) {
+            if (booting) { var w = which(this, type); if (w) held[w] = held[w].filter(function (h) { return h.fn !== fn; }); }
+            return rem.apply(this, arguments);
+        };
+        try { Object.defineProperty(document, 'readyState', { configurable: true, get: function () { return 'loading'; } }); } catch (e) {}
+        function call(h, type) {
+            try {
+                var ev; try { ev = new Event(type); } catch (x) { ev = { type: type }; }
+                if (typeof h.fn === 'function') h.fn.call(h.t, ev);
+                else if (h.fn && typeof h.fn.handleEvent === 'function') h.fn.handleEvent(ev);
+            } catch (e) { setTimeout(function () { throw e; }, 0); }
+        }
+        window.__apexBoot = {
+            booting: function () { return booting; },
+            release: function () {
+                if (!booting) return;
+                booting = false;
+                ET.addEventListener = add; ET.removeEventListener = rem;
+                try { delete document.readyState; } catch (e) {}
+                var d = held.dcl, l = held.load; held.dcl = []; held.load = [];
+                if (dclFired) d.forEach(function (h) { call(h, 'DOMContentLoaded'); });
+                else d.forEach(function (h) { add.call(h.t, 'DOMContentLoaded', h.fn); });
+                if (loadFired) setTimeout(function () { l.forEach(function (h) { call(h, 'load'); }); }, 0);
+                else l.forEach(function (h) { add.call(h.t, 'load', h.fn); });
+            }
+        };
+    })();
+    </script>
     <title>APEX Pump Station Manager</title>
 
     <!-- پس‌زمینهٔ روشن از همان نخستین فریم: پیش از لودر، به‌جای صفحهٔ سیاهِ پیش‌فرضِ
@@ -30,7 +83,8 @@
     <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="assets/icons/favicon-16.png">
-    <!-- فونت‌های آفلاین - Vazirmatn از پوشه assets/fonts -->
+    <!-- فونتِ برنامه: Estedad (۹ وزن، جاسازی‌شده داخلِ estedad.css) — Vazirmatn پشتیبان -->
+    <link rel="stylesheet" href="assets/fonts/estedad.css">
     <link rel="stylesheet" href="assets/fonts/vazirmatn.css">
     <!-- Font Awesome آفلاین از پوشه assets/css -->
     <link rel="stylesheet" href="assets/css/all.min.css">
@@ -80,7 +134,7 @@
             display: flex; position: fixed; inset: 0; z-index: 2147482000;
             align-items: center; justify-content: center;
             background: #ffffff; direction: rtl;
-            font-family: 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
+            font-family: Estedad, 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
             opacity: 1; transition: opacity .4s ease;
         }
         html.jouya-fade-loader #jouya-boot-loader { opacity: 0; pointer-events: none; }
@@ -93,7 +147,7 @@
             display: none; align-items: center; justify-content: center;
             background: linear-gradient(135deg, #1e3a5f, #274b74); color: #fff; font-size: 40px;
         }
-        #jouya-boot-loader .jbl-title { color: #1e3a5f; font-weight: 800; font-size: 1.25rem; letter-spacing: .3px; }
+        #jouya-boot-loader .jbl-title { color: #1e3a5f; font-weight: 800; font-size: 1.25rem; letter-spacing: .3px; text-align: center; direction: ltr; }
         #jouya-boot-loader .jbl-title small { display: block; font-size: .72rem; font-weight: 600; color: #6b7f9e; margin-top: 2px; letter-spacing: .4px; }
         #jouya-boot-loader .jbl-text { color: #64748b; font-weight: 600; font-size: .9rem; }
         #jouya-boot-loader .jbl-spinner {
@@ -207,7 +261,7 @@
             <img class="jbl-logo" src="build/icon.ico" alt="APEX Pump Station Manager"
                  onerror="this.onerror=null;this.style.display='none';var f=document.getElementById('jbl-logo-fb');if(f)f.style.display='flex';">
             <div id="jbl-logo-fb" class="jbl-logo-fb"><i class="fas fa-calculator"></i></div>
-            <div class="jbl-title">APEX Pump Station Manager<small>سیستم مدیریت پمپ استیشن</small></div>
+            <div class="jbl-title">APEX Pump Station Manager<small dir="ltr">Pump Station Management System</small></div>
             <div class="jbl-spinner"></div>
             <div class="jbl-text">در حال پردازش اطلاعات…</div>
         </div>
@@ -233,7 +287,8 @@
                 <span class="ssb-item-label">اطلاعات پمپ استیشن</span>
                 <i class="fas fa-chevron-left ssb-arrow"></i>
             </li>
-            <li onclick="ssbOpenSub('backup')">
+            <!-- پشتیبان‌گیری به هدرِ داشبورد منتقل شد (دکمهٔ ابر) — اینجا پنهان است -->
+            <li onclick="ssbOpenSub('backup')" style="display:none;">
                 <span class="ssb-item-icon"><i class="fas fa-database"></i></span>
                 <span class="ssb-item-label">پشتیبان‌گیری</span>
                 <i class="fas fa-chevron-left ssb-arrow"></i>
@@ -629,7 +684,7 @@
                         </div>
                         <span class="dash-topbar-datetime" id="dash-topbar-datetime"></span>
                         <div class="dash-topbar-left">
-                            <button class="dash-topbar-bell nd-topbar-backup" type="button" title="پشتیبان‌گیری گوگل درایو" onclick="ndOpenBackupQuick()">
+                            <button class="dash-topbar-bell nd-topbar-backup" type="button" title="پشتیبان‌گیری (ایمیل / Google Drive)" onclick="ndOpenBackupQuick()">
                                 <i class="fas fa-cloud-arrow-up"></i>
                             </button>
                             <button class="dash-topbar-bell" type="button" title="مرکز اعلانات" onclick="openSidebar(); if (typeof ssbOpenSub === 'function') { ssbOpenSub('announcements'); }">
@@ -662,6 +717,7 @@
                                                onkeydown="ndGlobalSearchKey(event, this)"
                                                onfocus="ndGlobalSearch(this, event)">
                                         <span class="nd-search-icon"><i class="fas fa-magnifying-glass"></i></span>
+                                        <button type="button" class="nd-search-refresh" id="nd-refresh-btn" title="تازه‌سازیِ همهٔ اطلاعات" onclick="ndRefreshAll(this)"><i class="fas fa-rotate-right"></i></button>
                                         <div class="nd-search-results product-search-results" id="nd-global-search-results"></div>
                                     </div>
                                 </div>
@@ -2416,6 +2472,7 @@
                                                 <col style="width:10%;">
                                                 <col style="width:13%;">
                                                 <col style="width:46px;">
+                                                <col style="width:84px;">
                                             </colgroup>
                                             <thead>
                                                 <tr>
@@ -2428,6 +2485,7 @@
                                                     <th>قابل برگشت</th>
                                                     <th>جمله</th>
                                                     <th>جزئیات</th>
+                                                    <th>...</th>
                                                 </tr>
                                             </thead>
                                             <tbody id="sr-items-body"></tbody>
@@ -2437,7 +2495,7 @@
                                                     <td style="text-align:left;">مجموعه</td>
                                                     <td></td><td></td><td></td><td></td><td></td>
                                                     <td><span id="sr-subtotal">۰</span></td>
-                                                    <td></td>
+                                                    <td></td><td></td>
                                                 </tr>
                                             </tfoot>
                                         </table>
@@ -2549,11 +2607,12 @@
                                                 <col style="width:42px;"><col style="width:26%;"><col style="width:10%;">
                                                 <col style="width:8%;"><col style="width:12%;"><col style="width:11%;">
                                                 <col style="width:10%;"><col style="width:13%;"><col style="width:46px;">
+                                                <col style="width:84px;">
                                             </colgroup>
                                             <thead>
                                                 <tr>
                                                     <th>شماره</th><th>نوع تیل / ذخیره</th><th>مقدار</th><th>واحد</th>
-                                                    <th>قیمت</th><th>تخفیف</th><th>قابل برگشت</th><th>جمله</th><th>جزئیات</th>
+                                                    <th>قیمت</th><th>تخفیف</th><th>قابل برگشت</th><th>جمله</th><th>جزئیات</th><th>...</th>
                                                 </tr>
                                             </thead>
                                             <tbody id="pr-items-body"></tbody>
@@ -2561,7 +2620,7 @@
                                                 <tr class="bill-subtotal-row">
                                                     <td>....</td><td style="text-align:left;">مجموعه</td>
                                                     <td></td><td></td><td></td><td></td><td></td>
-                                                    <td><span id="pr-subtotal">۰</span></td><td></td>
+                                                    <td><span id="pr-subtotal">۰</span></td><td></td><td></td>
                                                 </tr>
                                             </tfoot>
                                         </table>
@@ -4856,7 +4915,7 @@
                                     <span id="rp-results-title">نتایج گزارش</span>
                                 </div>
                                 <div class="rp-results-scroll">
-                                    <table id="rp-results-table" style="width:100%; border-collapse:separate; border-spacing:0; text-align:right; font-family:'Vazirmatn',Tahoma,sans-serif;">
+                                    <table id="rp-results-table" style="width:100%; border-collapse:separate; border-spacing:0; text-align:right; font-family:Estedad, 'Vazirmatn',Tahoma,sans-serif;">
                                         <thead id="rp-results-thead"></thead>
                                         <tbody id="rp-results-tbody"></tbody>
                                     </table>
@@ -5427,20 +5486,18 @@
     </div>
 
     <!-- اسکریپت‌ها -->
-    <!-- لایهٔ فشرده‌سازیِ شفافِ حافظهٔ محلی — باید پیش از هر خواننده/نویسندهٔ حافظه
-         بیاید. ترتیبِ بقیهٔ اسکریپت‌ها دست‌نخورده است؛ این فقط به ابتدا افزوده شده.
-         اگر این فایل نباشد، برنامه دقیقاً مثلِ قبل (بدونِ فشرده‌سازی) کار می‌کند. -->
-    <script src="jouya-store.js" onerror="console.warn('jouya-store.js not found — حافظه بدونِ فشرده‌سازی کار می‌کند')"></script>
+    <!-- همهٔ اسکریپت‌های پایین type="text/apex-boot" دارند: لودرِ پایانِ صفحه آن‌ها را پس از
+         آماده‌شدنِ حافظهٔ IndexedDB (jouya-store.js در <head>) به همان ترتیبِ قبلی اجرا می‌کند. -->
     <!-- کتابخانه‌های آفلاین از پوشه assets/js -->
-    <script src="assets/js/jquery-3.6.0.min.js"></script>
-    <script src="assets/js/chart.min.js"></script>
-    <script src="assets/js/persian-date.min.js"></script>
-    <script src="assets/js/persian-datepicker.min.js"></script>
+    <script type="text/apex-boot" src="assets/js/jquery-3.6.0.min.js"></script>
+    <script type="text/apex-boot" src="assets/js/chart.min.js"></script>
+    <script type="text/apex-boot" src="assets/js/persian-date.min.js"></script>
+    <script type="text/apex-boot" src="assets/js/persian-datepicker.min.js"></script>
     <link rel="stylesheet" href="assets/css/persian-datepicker.min.css">
 
     <!-- SheetJS برای کار با فایل‌های اکسل (آفلاین) — اگر در assets/js نبود از CDN لود می‌شود -->
-    <script src="assets/js/xlsx.full.min.js" onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';document.head.appendChild(s);})();"></script>
-    <script>
+    <script type="text/apex-boot" src="assets/js/xlsx.full.min.js" onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';document.head.appendChild(s);})();"></script>
+    <script type="text/apex-boot">
     /* اگر XLSX به هر دلیل (فایلِ ناقص، مسدودشدنِ CDN در نسخهٔ نصبی) بارگذاری نشد، یک بارِ دیگر
        از فایلِ محلی و سپس از CDN تلاش می‌شود؛ وگرنه دیالوگِ «کتابخانهٔ اکسل بارگذاری نشده» ظاهر می‌شد. */
     (function () {
@@ -5465,17 +5522,17 @@
     <!-- تولیدِ PDF در خودِ دستگاه (موبایل/مرورگر) برای «اشتراک‌گذاری با نامِ فارسی» از طریق شیت اشتراکِ نیتیو.
          html2canvas تصویرِ صفحه را می‌گیرد و jsPDF آن را به PDF تبدیل می‌کند (فارسی/راست‌چین حفظ می‌شود).
          آفلاین از assets/js لود می‌شوند؛ در نبودِ فایلِ محلی از CDN. -->
-    <script src="assets/js/html2canvas.min.js" onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';document.head.appendChild(s);})();"></script>
-    <script src="assets/js/jspdf.umd.min.js" onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';document.head.appendChild(s);})();"></script>
+    <script type="text/apex-boot" src="assets/js/html2canvas.min.js" onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';document.head.appendChild(s);})();"></script>
+    <script type="text/apex-boot" src="assets/js/jspdf.umd.min.js" onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';document.head.appendChild(s);})();"></script>
 
     <!-- لایهٔ ۲ امنیتی (رمزگشا): اگر بیلد «رمزنگاری‌شده» باشد، فایل‌های JS به‌صورتِ رمزشده
          بارگذاری و همین‌جا در حافظه رمزگشایی می‌شوند. اگر بیلد رمز نشده باشد (یا این فایل
          نباشد)، هیچ اثری ندارد و برنامه عادی بارگذاری می‌شود. باید «پیش از» همهٔ اسکریپت‌های
          برنامه بیاید. -->
-    <script src="__jouya_dec.js" onerror="console.warn('__jouya_dec.js not found (build may be unencrypted)')"></script>
+    <script type="text/apex-boot" src="__jouya_dec.js" onerror="console.warn('__jouya_dec.js not found (build may be unencrypted)')"></script>
     <!-- پلِ نسخهٔ نصبی (Tauri): electronAPI را می‌سازد تا «ذخیره در پوشهٔ دانلودها» و
          «بازکردنِ فایلِ اکسل» مثلِ نسخهٔ الکترون کار کند. در وب/موبایل بی‌اثر است. -->
-    <script src="tauri-bridge.js" onerror="console.warn('tauri-bridge.js not found')"></script>
+    <script type="text/apex-boot" src="tauri-bridge.js" onerror="console.warn('tauri-bridge.js not found')"></script>
     <!-- ═══════════════════════════════════════════════════════════════════════
          پایانِ «حالتِ آزمایشیِ ورودِ اطلاعات» — باید پیش از database.js اجرا شود.
          ---------------------------------------------------------------------
@@ -5487,7 +5544,7 @@
          database.js/script.js اجرا شود؛ وگرنه نسخهٔ درون‌حافظه‌ایِ db دادهٔ آزمایشی
          را برمی‌داشت. کلیدهای هویت/نشست/لایسنس/وضعیتِ سینک هرگز دست نمی‌خورند.
          ═══════════════════════════════════════════════════════════════════════ -->
-    <script>
+    <script type="text/apex-boot">
     (function () {
         'use strict';
         var FLAG = 'jouya_trial_flag', SESS = 'jouya_trial_active', BAK = 'jouya_trial_backup';
@@ -5547,7 +5604,7 @@
      ║  window.stop() جلوی بارگذاریِ فایل‌های برنامه را می‌گیرد تا در حینِ          ║
      ║  بازگردانی هیچ کدی دادهٔ قدیمی را نخوانَد و روی آن ننویسد.                  ║
      ╚══════════════════════════════════════════════════════════════════════════╝ -->
-    <script>
+    <script type="text/apex-boot">
     (function () {
         'use strict';
         var MARKER = 'jouya_store_backend', DONE = 'jouya_store_restored';
@@ -5563,7 +5620,7 @@
         try {
             document.documentElement.innerHTML =
                 '<body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;' +
-                'font-family:Tahoma,sans-serif;background:#1e3a5f;color:#fff;direction:rtl;text-align:center">' +
+                'font-family:Estedad, Tahoma,sans-serif;background:#1e3a5f;color:#fff;direction:rtl;text-align:center">' +
                 '<div><div style="font-size:18px;font-weight:700">در حال بازگردانیِ اطلاعات…</div>' +
                 '<div style="margin-top:10px;opacity:.85;font-size:14px">چند لحظه صبر کنید؛ برنامه خودکار باز می‌شود.</div></div></body>';
         } catch (e) {}
@@ -5611,39 +5668,39 @@
         };
     })();
     </script>
-    <script src="database.js"></script>
-    <script src="script.js"></script>
-    <script src="persian-date-utils.js" onerror="console.warn('persian-date-utils.js not found')"></script>
+    <script type="text/apex-boot" src="database.js"></script>
+    <script type="text/apex-boot" src="script.js"></script>
+    <script type="text/apex-boot" src="persian-date-utils.js" onerror="console.warn('persian-date-utils.js not found')"></script>
     <!-- سیستم احراز هویت، فعال‌سازی لایسنس و بک‌آپ ایمیل (مستقل) -->
-    <script src="auth-system.js" onerror="console.warn('auth-system.js not found')"></script>
+    <script type="text/apex-boot" src="auth-system.js" onerror="console.warn('auth-system.js not found')"></script>
     <!-- پشتیبان‌گیری Google Drive (مستقل) -->
     <!-- شناسهٔ کلاینتِ وبِ گوگل — باید پیش از drive-backup.js بار شود -->
-    <script src="jouya-google-config.js" onerror="console.warn('jouya-google-config.js not found')"></script>
-    <script src="drive-backup.js" onerror="console.warn('drive-backup.js not found')"></script>
+    <script type="text/apex-boot" src="jouya-google-config.js" onerror="console.warn('jouya-google-config.js not found')"></script>
+    <script type="text/apex-boot" src="drive-backup.js" onerror="console.warn('drive-backup.js not found')"></script>
     <!-- پچ نهایی آپدیت آنی دیتابیس — حتماً آخرین script باشد -->
-    <script src="instant-update-fix.js" onerror="console.warn('instant-update-fix.js not found')"></script>
-    <script src="delivery-list.js" onerror="console.warn('delivery-list.js not found')"></script>
+    <script type="text/apex-boot" src="instant-update-fix.js" onerror="console.warn('instant-update-fix.js not found')"></script>
+    <script type="text/apex-boot" src="delivery-list.js" onerror="console.warn('delivery-list.js not found')"></script>
     <!-- سیستم مرکزی و ماژولار ارزها — کارت «نرخ ارز» + مدیریت ارز/نرخ (مستقل) -->
-    <script src="currency-system.js" onerror="console.warn('currency-system.js not found')"></script>
+    <script type="text/apex-boot" src="currency-system.js" onerror="console.warn('currency-system.js not found')"></script>
 <!-- سینکِ ابری (فاز ۲ — تست؛ سینکِ زنده هنوز خاموش است) -->
-    <script src="sync-config.js" onerror="console.warn('sync-config.js not found')"></script>
-    <script src="sync-layer.js" onerror="console.warn('sync-layer.js not found')"></script>
-<script src="auth-cloud.js" onerror="console.warn('auth-cloud.js not found')"></script>
-<script src="device-guard.js" onerror="console.warn('device-guard.js not found')"></script>
+    <script type="text/apex-boot" src="sync-config.js" onerror="console.warn('sync-config.js not found')"></script>
+    <script type="text/apex-boot" src="sync-layer.js" onerror="console.warn('sync-layer.js not found')"></script>
+<script type="text/apex-boot" src="auth-cloud.js" onerror="console.warn('auth-cloud.js not found')"></script>
+<script type="text/apex-boot" src="device-guard.js" onerror="console.warn('device-guard.js not found')"></script>
 <!-- مدیریتِ دکمهٔ برگشتِ اندروید (فقط اندرویدِ نیتیو؛ وب/آیفون/Tauri بی‌اثر) -->
-<script src="capacitor-back.js" onerror="console.warn('capacitor-back.js not found')"></script>
+<script type="text/apex-boot" src="capacitor-back.js" onerror="console.warn('capacitor-back.js not found')"></script>
 <!-- اشتراکِ فایلِ PDF در اپلیکیشنِ اندروید (فقط اندرویدِ نیتیو؛ بقیه بی‌اثر) -->
-<script src="capacitor-share.js" onerror="console.warn('capacitor-share.js not found')"></script>
-<script src="demo-mode.js" onerror="console.warn('demo-mode.js not found')"></script>
+<script type="text/apex-boot" src="capacitor-share.js" onerror="console.warn('capacitor-share.js not found')"></script>
+<script type="text/apex-boot" src="demo-mode.js" onerror="console.warn('demo-mode.js not found')"></script>
 <!-- فاز ۵: موتورِ مقیاسِ خودکارِ منعطفِ موبایل (فقط روی موبایل فعال؛ دسکتاپ دست‌نخورده) -->
-<script src="mobile-fit.js" onerror="console.warn('mobile-fit.js not found')"></script>
-<script src="jouya-selftest.js"></script>
+<script type="text/apex-boot" src="mobile-fit.js" onerror="console.warn('mobile-fit.js not found')"></script>
+<script type="text/apex-boot" src="jouya-selftest.js"></script>
 <!-- بهبودهای رابطِ کاربری (افزودنی): تاییدِ خروج از فرم + پاک‌شدنِ خودکارِ فیلدِ صفر در موبایل + بروزرسانیِ زندهٔ گزارش‌ها با تغییرِ نرخ -->
-<script src="jouya-ux-fixes.js" onerror="console.warn('jouya-ux-fixes.js not found')"></script>
+<script type="text/apex-boot" src="jouya-ux-fixes.js" onerror="console.warn('jouya-ux-fixes.js not found')"></script>
 <!-- راه‌اندازِ PWA: ثبتِ service worker + دکمهٔ «نصب اپلیکیشن» + راهنمای iOS (افزودنی) -->
-<script src="pwa-register.js" onerror="console.warn('pwa-register.js not found')"></script>
+<script type="text/apex-boot" src="pwa-register.js" onerror="console.warn('pwa-register.js not found')"></script>
 <!-- ═══ APEX Pump Station Manager — منطقِ اختصاصیِ پمپ استیشن (باید آخرین اسکریپت باشد) ═══ -->
-<script src="pump-station.js" onerror="console.warn('pump-station.js not found')"></script>
+<script type="text/apex-boot" src="pump-station.js" onerror="console.warn('pump-station.js not found')"></script>
 <!-- ====== پنل پروفایل (حذف شد - فقط آیکن باقی است) ====== -->
 <span id="profile-display-name" style="display:none;"></span>
 <span id="pp-name" style="display:none;"></span>
@@ -5656,7 +5713,7 @@
 <div id="profile-panel" style="display:none;"></div>
 
 <!-- فقط سیستم اعداد انگلیسی — هیچ عددی به فارسی/زبان دیگر نمایش داده نمی‌شود -->
-<script>
+<script type="text/apex-boot">
 (function(){
     function forceEnglishNumbers(){
         window.getNumberSystem = function(){ return 'en'; };
@@ -5666,6 +5723,36 @@
     forceEnglishNumbers();
     document.addEventListener('DOMContentLoaded', forceEnglishNumbers);
     window.addEventListener('load', forceEnglishNumbers);
+})();
+</script>
+<!-- ═══ لودرِ بوت: اجرای اسکریپت‌های برنامه پس از آماده‌شدنِ حافظه (به همان ترتیب) ═══ -->
+<script>
+(function () {
+    'use strict';
+    var list = Array.prototype.slice.call(document.querySelectorAll('script[type="text/apex-boot"]'));
+    var i = 0;
+    function done() { try { if (window.__apexBoot) window.__apexBoot.release(); } catch (e) {} }
+    function next() {
+        while (i < list.length) {
+            var old = list[i++], s = document.createElement('script'), a, at, src = old.getAttribute('src');
+            for (a = 0; a < old.attributes.length; a++) { at = old.attributes[a]; if (at.name !== 'type' && at.name !== 'src') s.setAttribute(at.name, at.value); }
+            if (src) {
+                var fired = false, go = function () { if (fired) return; fired = true; next(); };
+                s.async = false;
+                s.addEventListener('load', go);
+                s.addEventListener('error', go);
+                s.src = src;
+                old.parentNode.replaceChild(s, old);
+                return;                                   // ادامه پس از load/error همین فایل
+            }
+            s.text = old.text;
+            old.parentNode.replaceChild(s, old);          // اسکریپتِ درون‌خطی همین‌جا اجرا می‌شود
+        }
+        done();
+    }
+    var JS = window.JouyaStore;
+    if (JS && JS.ready && typeof JS.ready.then === 'function') JS.ready.then(next, function () { /* صفحهٔ «حافظه باز نشد» نشان داده شد */ });
+    else next();
 })();
 </script>
 </body>

@@ -1140,7 +1140,7 @@ body:has(#dashboard.section.active) #financial.section.active { display: none !i
     position: fixed; inset: 0; z-index: 2147483000;
     background: #eef2f7; direction: rtl;
     display: flex; flex-direction: column;
-    font-family: 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
+    font-family: Estedad, 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
 }
 .jouya-pp-bar {
     flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
@@ -1248,7 +1248,7 @@ body:has(#dashboard.section.active) #financial.section.active { display: none !i
 
     /* جستجو */
     #dashboard .nd-search-hint { font-size: .62rem !important; }
-    #dashboard .nd-search-input { font-size: .76rem !important; padding: 8px 12px 8px 34px !important; }
+    #dashboard .nd-search-input { font-size: .76rem !important; padding: 8px 32px 8px 34px !important; }
     #dashboard .nd-search-results { max-height: 46vh !important; }
     #dashboard .nd-sr-item { font-size: .74rem !important; }
 

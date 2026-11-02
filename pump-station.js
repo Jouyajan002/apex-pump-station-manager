@@ -115,24 +115,30 @@
         if (/^(بیرل|بشکه|barrel|bbl)$/.test(u)) return 158.987294928;
         return null;
     }
-    // لیترِ معادلِ یک واحد برای یک ذخیرهٔ مشخص (با درنظرگرفتنِ واحدِ فرعیِ خودِ ذخیره)
+    // لیترِ معادلِ یک واحد برای یک ذخیرهٔ مشخص — همیشه هم‌راستا با primaryPerUnit:
+    //   لیتر = (چند واحدِ اصلی در یک واحدِ واردشده) × (لیترِ یک واحدِ اصلی)
     function litersPerUnit(prod, unit, g) {
+        if (prod) {
+            var ppu = primaryPerUnit(prod, unit, g), Lp = unitLiters(prod.unit, g);
+            if (ppu != null && Lp != null) return ppu * Lp;
+        }
         var L = unitLiters(unit, g);
-        if (L != null) return L;
-        if (!prod) return null;
-        var Lp = unitLiters(prod.unit, g);
-        if (unit === prod.unit) return Lp;
-        if (prod.hasSecondaryUnit && unit === prod.secondaryUnit && N(prod.secondaryUnitFactor) > 0 && Lp != null) return Lp / N(prod.secondaryUnitFactor);
-        return null;
+        return (L != null) ? L : null;
     }
     // چند «واحدِ اصلیِ ذخیره» = یک واحدِ واردشده
+    //  • واحدِ فرعیِ ثبت‌شده در خودِ ذخیره (با ضریب): همان معادلِ ثبت‌شده مرجع است، مگر کاربر
+    //    ثقلِ همین سطر را عمداً با ثقلِ ذخیره متفاوت وارد کرده باشد (آن‌وقت تبدیلِ فیزیکی با
+    //    ثقلِ سطر — مثلاً ۲ تن با ثقلِ ۰٫۷۵ = ۲۶۶۶٫۶۶۷ لیتر).
+    //  • بقیهٔ واحدها: تبدیلِ فیزیکی (لیتر/تن/کیلو/گیلن/…) با ثقلِ سطر.
     function primaryPerUnit(prod, unit, g) {
         if (!prod) return null;
         if (!unit || unit === prod.unit) return 1;
-        // اولویت با تبدیلِ فیزیکی (با ثقلِ همین سطر)؛ ضریبِ واحدِ فرعیِ ذخیره فقط برای واحدهای ناشناخته
+        var f = N(prod.secondaryUnitFactor);
+        var isSec = !!(prod.hasSecondaryUnit && unit === prod.secondaryUnit && f > 0);
+        if (isSec && (!(N(g) > 0) || Math.abs(N(g) - tankGravity(prod)) < 1e-9)) return 1 / f;
         var Le = unitLiters(unit, g), Lp = unitLiters(prod.unit, g);
         if (Le != null && Lp != null && Lp > 0) return Le / Lp;
-        if (prod.hasSecondaryUnit && unit === prod.secondaryUnit && N(prod.secondaryUnitFactor) > 0) return 1 / N(prod.secondaryUnitFactor);
+        if (isSec) return 1 / f;
         return null;
     }
     // لیترِ موجودیِ یک ذخیره (null اگر واحدِ اصلی حجمی نباشد)
@@ -1489,8 +1495,9 @@
             ? '<input type="hidden" class="purchase-item-product"><input type="hidden" class="purchase-item-quantity" value="0"><input type="hidden" class="purchase-item-unit" value=""><input type="hidden" class="purchase-item-price" value=""><input type="hidden" class="purchase-item-discount" value="0">'
             : '<input type="hidden" class="item-product"><input type="hidden" class="item-quantity" value="0"><span class="item-unit" style="display:none;"></span><input type="hidden" class="item-price" value=""><input type="hidden" class="item-discount" value="0">';
         return '<td class="ps-num-cell"><span class="ps-num">1</span>' +
-            '<button type="button" class="ps-row-add" onclick="PumpStation.addRowAfter(this)" title="افزودن سطر"><i class="fas fa-plus"></i></button>' +
-            '<button type="button" class="ps-row-del" onclick="' + (isP ? 'removePurchaseItem(this)' : 'removeItem(this)') + '" title="حذف سطر"><i class="fas fa-trash"></i></button></td>' +
+            // tabindex=-1: کلیدِ Tab فقط میانِ فیلدهای تایپ حرکت کند، نه روی دکمه‌های سطر
+            '<button type="button" class="ps-row-add" tabindex="-1" onclick="PumpStation.addRowAfter(this)" title="افزودن سطر"><i class="fas fa-plus"></i></button>' +
+            '<button type="button" class="ps-row-del" tabindex="-1" onclick="' + (isP ? 'removePurchaseItem(this)' : 'removeItem(this)') + '" title="حذف سطر"><i class="fas fa-trash"></i></button></td>' +
             '<td class="ps-fields-cell"><div class="ps-grid' + (isP ? ' ps-grid-purchase' : '') + '">' +
             '<label class="ps-f ps-f-fuel" title="نوع تیل"><i class="fas fa-droplet"></i><select class="ps-fuel" onchange="PumpStation.fuelChanged(this)"><option value="">نوع تیل</option></select></label>' +
             '<label class="ps-f" title="مقدار"><i class="fas fa-list-ol"></i><input type="number" class="ps-qty" step="any" min="0" placeholder="مقدار" oninput="PumpStation.recalc(this)" onchange="PumpStation.recalc(this)"></label>' +
@@ -1656,10 +1663,23 @@
     };
     PS.unitChanged = function (sel) {
         var row = sel.closest('tr');
-        // قیمتِ پیشنهادی هم با واحدِ جدید هماهنگ شود (مگر کاربر قیمت را دستی تغییر داده باشد)
+        // قیمت همیشه با واحدِ جدید هماهنگ می‌شود:
+        //  • قیمتِ خودکار → از قیمتِ ثبت‌شده در ذخیره برای همین واحد (لیتر/تن/واحدِ فرعی …)
+        //  • قیمتِ دستی  → همان نرخ به واحدِ جدید برگردانده می‌شود (مثلاً ۷۰ فی لیتر ← ۸۳٬۳۳۳٫۳۳ فی تن)
         if (!row.dataset.psManualPrice) suggestPrice(row);
+        else convertManualPrice(row, row.dataset.psUnitPrev, sel.value);
         recalcRow(row);
     };
+    function convertManualPrice(row, fromUnit, toUnit) {
+        var isP = isPRow(row);
+        var p = getProduct((hidProd(row, isP) || {}).value);
+        var pe = row.querySelector('.ps-price');
+        if (!p || !pe || pe.value === '' || !fromUnit || fromUnit === toUnit) return;
+        var g = N((row.querySelector('.ps-gravity') || {}).value) || tankGravity(p);
+        var a = primaryPerUnit(p, fromUnit, g), b = primaryPerUnit(p, toUnit, g);
+        if (a == null || b == null || !(a > 0)) return;
+        pe.value = R(N(pe.value) * b / a, 4);
+    }
     PS.gravityChanged = function (inp) {
         var row = inp.closest('tr'); row.dataset.psGravityManual = '1';
         if (!row.dataset.psManualPrice) suggestPrice(row);
@@ -1745,6 +1765,7 @@
         var le = row.querySelector('.ps-liters'); if (le) le.textContent = (liters != null && qty) ? fmt(liters, 3) : '';
         row.dataset.psLiters = (liters != null) ? liters : '';
         row.dataset.unitType = 'primary'; row.dataset.secondaryFactor = '';
+        row.dataset.psUnitPrev = unit;          // برای تبدیلِ قیمتِ دستی هنگامِ تغییرِ واحد
         if (isP) calculatePurchaseTotal(); else calculateSalesTotal();
         applyDigits();
     }
@@ -2397,7 +2418,7 @@
             return '<tr' + (head ? ' class="h"' : '') + '>' + r.map(function (c) { return (head ? '<th>' : '<td>') + esc(typeof c === 'number' ? fmt(c) : c) + (head ? '</th>' : '</td>'); }).join('') + '</tr>';
         }).join('');
         var range = (dr.fromDate || dr.toDate) ? ((dr.fromDate || '…') + ' تا ' + (dr.toDate || '…')) : 'همه زمان‌ها';
-        var html = '<!DOCTYPE html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>@page{size:A4;margin:12mm;}body{font-family:Vazirmatn,Tahoma,sans-serif;direction:rtl;color:#1e293b;}h2{color:#1e3a5f;margin:0 0 4px;}.m{color:#64748b;font-size:12px;margin-bottom:12px;}table{width:100%;border-collapse:collapse;font-size:12px;}td,th{border:1px solid #cbd5e1;padding:6px 8px;text-align:right;}tr.h th{background:#1e3a5f;color:#fff;}tr.t th{background:#e2e8f0;text-align:right;}tr.g td{border:none;height:10px;}</style></head><body>' +
+        var html = '<!DOCTYPE html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>@page{size:A4;margin:12mm;}body{font-family:Estedad, Vazirmatn,Tahoma,sans-serif;direction:rtl;color:#1e293b;}h2{color:#1e3a5f;margin:0 0 4px;}.m{color:#64748b;font-size:12px;margin-bottom:12px;}table{width:100%;border-collapse:collapse;font-size:12px;}td,th{border:1px solid #cbd5e1;padding:6px 8px;text-align:right;}tr.h th{background:#1e3a5f;color:#fff;}tr.t th{background:#e2e8f0;text-align:right;}tr.g td{border:none;height:10px;}</style></head><body>' +
             '<h2>' + esc(title) + '</h2><div class="m">بازه: ' + esc(range) + '</div><table>' + rowsHtml + '</table></body></html>';
         try { __openPrintPreview(html, { title: title, text: title, assets: true, topBar: true, pdfName: title }); }
         catch (e) { var w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); } }
@@ -2443,6 +2464,283 @@
         if (!e || !e.key) return;
         if (/meters|meterReadings/.test(e.key)) { try { if (sectionActive('products-list') && currentTab() === 'meters') renderMeters(); if (sectionActive('meter-readings-list')) renderReadings(); renderDashMeters(); } catch (x) {} }
     });
+
+    // =============================================================================
+    //  به‌روزرسانیِ آبان ۱۴۰۵ — هماهنگ با APEX Store Manager، مطابقِ پمپ استیشن
+    // =============================================================================
+
+    // ── چاپِ بل: فقط نوعِ تیل + مقدار و واحدی که واقعاً فروخته/خریده شده + قیمتِ همان واحد ──
+    //  (ثقل، لیتر، میتر و نامِ ذخیره در چاپ نمی‌آیند). generateProfessionalInvoiceHTML این را
+    //  صدا می‌زند و «جمع مبلغ» را از جمعِ همین سطرها می‌سازد.
+    window._psInvoiceRow = function (it) {
+        if (!it || it.isService || it.isWastage) return null;
+        var pump = (it.enteredUnit != null || it.fuelType != null || it.tankId != null);
+        if (!pump) return null;
+        var p = getProduct(it.productId);
+        var desc = it.fuelType || tankFuel(p) || it.productName || it.name || '---';
+        var hasEntered = N(it.enteredQty) > 0 && !!it.enteredUnit;
+        var qty = hasEntered ? N(it.enteredQty) : N(it.quantity);
+        var unit = hasEntered ? it.enteredUnit : (it.unit || (p && p.unit) || '');
+        var disc = N(it.discount);
+        var gross = (it.total != null && isFinite(parseFloat(it.total))) ? N(it.total) : N(it.quantity) * N(it.price);
+        var price = (hasEntered && N(it.enteredPrice) > 0) ? N(it.enteredPrice) : (qty ? gross / qty : N(it.price));
+        return { desc: desc, qty: qty, unit: unit, price: R(price, 4), total: gross - disc };
+    };
+
+    // ── ورود/بازیابیِ JSON: پایانِ کار فقط پس از ثبتِ قطعی در حافظهٔ دستگاه (IndexedDB) ──
+    (function () {
+        try {
+            if (!window.db || typeof db.importData !== 'function' || db.importData.__psWaits) return;
+            var orig = db.importData;
+            var w = function () {
+                var r = orig.apply(this, arguments);
+                if (!window.JouyaStore || typeof JouyaStore.whenSaved !== 'function') return r;
+                return Promise.resolve(r).then(function (v) { return JouyaStore.whenSaved().then(function () { return v; }); });
+            };
+            w.__psWaits = true;
+            db.importData = w;
+        } catch (e) {}
+    })();
+
+    // ── لوگو/تصاویرِ بزرگِ فعلی: یک‌بار خودکار به حداکثر ۱۰۲۴ پیکسل کوچک می‌شوند ──
+    //  اصلِ هر تصویر جدا (کلیدِ jouya_img_original_*) نگه داشته می‌شود؛ این کلیدها نه در
+    //  سینک‌اند و نه در خروجیِ JSON.
+    function shrinkStoredImages() {
+        try {
+            if (typeof window._apexShrinkImage !== 'function' || !db || !db.getSettings) return;
+            var s = db.getSettings() || {};
+            var keys = ['storeLogo', 'billLogo', 'billSideImage', 'billBarcode'];
+            var todo = keys.filter(function (k) { return typeof s[k] === 'string' && s[k].indexOf('data:image/') === 0 && s[k].length > 400000; });
+            if (!todo.length) return;
+            var chain = Promise.resolve(), patch = {};
+            todo.forEach(function (k) {
+                chain = chain.then(function () {
+                    return window._apexShrinkImage(s[k]).then(function (out) {
+                        if (out && out.length < s[k].length) {
+                            try { localStorage.setItem('jouya_img_original_' + k, s[k]); } catch (e) {}
+                            patch[k] = out;
+                        }
+                    });
+                });
+            });
+            chain.then(function () {
+                if (!Object.keys(patch).length) return;
+                var cur = db.getSettings() || {};
+                Object.keys(patch).forEach(function (k) { if (cur[k] === s[k]) cur[k] = patch[k]; });
+                db.saveSettings(cur);
+                try { if (typeof _renderDashboardStoreInfo === 'function') _renderDashboardStoreInfo(); } catch (e) {}
+            });
+        } catch (e) {}
+    }
+    setTimeout(shrinkStoredImages, 4000);
+
+    // ── فونتِ نمودارهای Chart.js ──
+    try {
+        if (window.Chart && Chart.defaults) {
+            if (Chart.defaults.font) Chart.defaults.font.family = 'Estedad, Vazirmatn, Tahoma, sans-serif';
+            else if (Chart.defaults.global) Chart.defaults.global.defaultFontFamily = 'Estedad, Vazirmatn, Tahoma, sans-serif';
+        }
+    } catch (e) {}
+
+    // ── تیکِ سبزِ فیلدِ مبلغ در فرم‌های «دریافتی» و «پرداختی» ──
+    //  دریافتی: باقیِ حسابِ پرداخت‌کننده را پر می‌کند؛ پرداختی: طلبِ دریافت‌کننده را؛
+    //  هر دو به ارزِ انتخاب‌شدهٔ فرم. در حالتِ ویرایش، اثرِ خودِ همان سند از بیلانس
+    //  برگردانده می‌شود. اگر تیک زده نشود، رفتارِ عادیِ فرم دست نمی‌خورد.
+    function personBalanceFor(personId, cur, excl) {
+        var p = null;
+        try { p = (db.getPersons() || []).find(function (x) { return x && String(x.id) === String(personId); }); } catch (e) {}
+        if (!p || typeof _computePersonBalance !== 'function') return null;
+        var b = 0;
+        try { var r = _computePersonBalance(p); b = N((r && r.balances || {})[cur]); } catch (e) { return null; }
+        if (excl) {
+            transactions().forEach(function (t) {
+                if (!t || !excl(t)) return;
+                var pid = (t.personId != null ? t.personId : (t.customerId != null ? t.customerId : t.supplierId));
+                if (String(pid) !== String(personId) || (t.currency || baseCur()) !== cur) return;
+                var a = N(t.totalAmount != null ? t.totalAmount : t.amount);
+                if (t.type === 'دریافت') b += a;          // دریافت بیلانس را کم کرده بود
+                else if (t.type === 'پرداخت') b -= a;     // پرداخت بیلانس را زیاد کرده بود
+            });
+        }
+        return b;
+    }
+    function fillAmountFromBalance(kind) {
+        var isR = (kind === 'receipt');
+        var form = $(isR ? 'receiptForm' : 'paymentForm');
+        var pid = ($(isR ? 'receive-from' : 'pay-to') || {}).value;
+        var cur = ($(isR ? 'receipt-currency' : 'payment-currency') || {}).value || baseCur();
+        var amt = $(isR ? 'receipt-amount' : 'payment-amount');
+        if (!amt) return;
+        if (!pid) { toast(isR ? 'اول پرداخت‌کننده را انتخاب کنید' : 'اول دریافت‌کننده را انتخاب کنید', 'warning'); return; }
+        var ds = (form && form.dataset) || {};
+        var excl = null;
+        if (ds.editId || (ds.editGroupKey && ds.editGroupId)) {
+            excl = function (t) {
+                if (ds.editId && String(t.id) === String(ds.editId)) return true;
+                return !!(ds.editGroupKey && ds.editGroupId && t[ds.editGroupKey] === ds.editGroupId);
+            };
+        }
+        var b = personBalanceFor(pid, cur, excl);
+        if (b == null) return;
+        var v = isR ? b : -b;               // دریافتی ← باقیِ شخص ؛ پرداختی ← طلبِ شخص
+        v = v > 0 ? R(v, 2) : 0;
+        amt.value = v ? String(v) : '0';
+        try { amt.dispatchEvent(new Event('input', { bubbles: true })); amt.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+        if (!v) toast(isR ? 'این شخص به این ارز باقی ندارد' : 'این شخص به این ارز طلب ندارد', 'info');
+    }
+    PS.fillAmountFromBalance = fillAmountFromBalance;
+    document.addEventListener('click', function (e) {
+        var t = e.target && e.target.closest ? e.target.closest('.bill-inline-field--amount .bill-inline-iconbtn') : null;
+        if (!t) return;
+        var f = t.closest('form');
+        if (!f || (f.id !== 'receiptForm' && f.id !== 'paymentForm')) return;
+        e.preventDefault();
+        fillAmountFromBalance(f.id === 'receiptForm' ? 'receipt' : 'payment');
+    });
+    (function () {
+        [['receiptForm', 'پر کردنِ باقیِ حسابِ پرداخت‌کننده'], ['paymentForm', 'پر کردنِ طلبِ دریافت‌کننده']].forEach(function (x) {
+            var b = document.querySelector('#' + x[0] + ' .bill-inline-field--amount .bill-inline-iconbtn');
+            if (b) { b.title = x[1]; b.setAttribute('role', 'button'); b.style.cursor = 'pointer'; }
+        });
+    })();
+
+    // ── جدولِ اقلام: کلیدِ Tab فقط میانِ فیلدهای تایپ (دکمه‌ها و لینک‌های داخلِ سطرها tabindex=-1) ──
+    var ITEM_BODIES = ['sales-items-body', 'purchase-items-body', 'sr-items-body', 'pr-items-body'];
+    function untabRowButtons(root) {
+        try {
+            Array.prototype.forEach.call((root || document).querySelectorAll('button, a[href], .bill-inline-iconbtn'), function (b) {
+                if (b.getAttribute('tabindex') !== '-1') b.setAttribute('tabindex', '-1');
+            });
+        } catch (e) {}
+    }
+
+    // ── عرضِ منعطفِ ستون‌ها در جدولِ اقلامِ «برگشت از فروش» و «برگشت از خرید» ──
+    //  عرضِ هر ستون از روی عنوان و طولانی‌ترین مقدارِ همان ستون تعیین می‌شود و با تایپ
+    //  تغییر می‌کند؛ بقیهٔ فضا به ستونِ نامِ تیل/ذخیره می‌رسد. در موبایل ستون‌ها تا حدِ
+    //  ممکن کوچک می‌شوند، جدول اسکرولِ افقی دارد و ستونِ نام دست‌کم ۱۵۰ پیکسل می‌گیرد.
+    //  (بلِ فروش و خریدِ پمپ استیشن سطرهای کارتی دارند و ستونِ جدولی ندارند.)
+    var FLEX_TABLES = ['sr-items-table', 'pr-items-table'];
+    var _mctx = null;
+    function textW(txt, el) {
+        try {
+            if (!_mctx) _mctx = document.createElement('canvas').getContext('2d');
+            var cs = getComputedStyle(el);
+            _mctx.font = cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+            return _mctx.measureText(String(txt == null ? '' : txt)).width;
+        } catch (e) { return String(txt || '').length * 8; }
+    }
+    function flexCols(tbl) {
+        try {
+            if (!tbl || !tbl.tHead || !tbl.tHead.rows.length) return;
+            var cols = tbl.querySelectorAll('colgroup col');
+            if (!cols.length || !tbl.offsetParent) return;
+            var mobile = (window.innerWidth || 0) <= 768;
+            var head = tbl.tHead.rows[0], n = head.cells.length, NAME = 1;
+            var padT = mobile ? 14 : 22, padI = mobile ? 24 : 34;
+            var w = [];
+            for (var c = 0; c < n; c++) {
+                var th = head.cells[c];
+                var mx = textW((th.textContent || '').trim(), th) + padT;
+                var rows = tbl.tBodies[0] ? tbl.tBodies[0].rows : [];
+                for (var r = 0; r < rows.length; r++) {
+                    var td = rows[r].cells[c]; if (!td) continue;
+                    var inp = td.querySelector('input:not([type=hidden]), select');
+                    var t;
+                    if (inp) t = textW(inp.tagName === 'SELECT' ? ((inp.options[inp.selectedIndex] || {}).text || '') : (inp.value || inp.placeholder || ''), inp) + padI;
+                    else t = textW((td.textContent || '').trim(), td) + padT;
+                    if (td.querySelector('button')) t = Math.max(t, mobile ? 38 : 46);
+                    var acts = td.querySelector('.ret-acts');
+                    if (acts) t = Math.max(t, Math.ceil(acts.scrollWidth) + (mobile ? 12 : 18));   // ستونِ «...» (⊕ ⊖ ⊗)
+                    if (t > mx) mx = t;
+                }
+                w.push(Math.ceil(mx));
+            }
+            var other = 0;
+            for (var k = 0; k < n; k++) if (k !== NAME) other += w[k];
+            var nameMin = mobile ? 150 : Math.max(160, w[NAME]);
+            for (var j = 0; j < cols.length && j < n; j++) cols[j].style.width = (j === NAME) ? 'auto' : (w[j] + 'px');
+            tbl.style.tableLayout = 'fixed';
+            tbl.style.width = '100%';
+            tbl.style.minWidth = (other + nameMin) + 'px';
+            tbl.classList.add('apex-flex-cols');
+            // پس از چیدمان: اگر ستونِ نام (به‌خاطرِ padding/حاشیه) از حداقل کمتر شد، جبران
+            try {
+                var nw = head.cells[NAME].getBoundingClientRect().width;
+                if (nw && nw < nameMin - 0.5) tbl.style.minWidth = Math.ceil(other + nameMin + (nameMin - nw) + 1) + 'px';
+            } catch (e) {}
+            var wrap = tbl.closest('.bill-table-scroll, .table-container');
+            if (wrap) wrap.classList.add('apex-flex-wrap');
+        } catch (e) {}
+    }
+    var _flexT = 0;
+    function flexAll() {
+        if (_flexT) return;
+        _flexT = (window.requestAnimationFrame || setTimeout)(function () {
+            _flexT = 0;
+            FLEX_TABLES.forEach(function (id) { flexCols($(id)); });
+        });
+    }
+    PS.flexCols = flexAll;
+    (function installItemTables() {
+        ITEM_BODIES.forEach(function (id) {
+            var tb = $(id); if (!tb) return;
+            untabRowButtons(tb);
+            try {
+                new MutationObserver(function () { untabRowButtons(tb); if (id === 'sr-items-body' || id === 'pr-items-body') flexAll(); })
+                    .observe(tb, { childList: true, subtree: true });
+            } catch (e) {}
+            if (id === 'sr-items-body' || id === 'pr-items-body') {
+                tb.addEventListener('input', flexAll, true);
+                tb.addEventListener('change', flexAll, true);
+            }
+        });
+        window.addEventListener('resize', flexAll);
+        document.addEventListener('sectionChanged', function () { setTimeout(flexAll, 30); });
+    })();
+
+    // ── «اطلاعات فروش/خرید» در موبایل: همهٔ ستون‌های جدولِ اقلام در یک نما ──
+    //  عرضِ ستون‌ها با colgroup از روی محتوا و عنوان؛ ستونِ نام دست‌کم ۹۶ پیکسل.
+    function txdFit() {
+        try {
+            var t = document.querySelector('#tx-detail .txd-items-table') || document.querySelector('.txd-items-table');
+            if (!t || !t.tHead || !t.tHead.rows.length) return;
+            var cg = t.querySelector('colgroup.apex-txd-cg');
+            if ((window.innerWidth || 0) > 768) {
+                t.classList.remove('apex-txd-fit');
+                if (cg && cg.parentNode) cg.parentNode.removeChild(cg);
+                return;
+            }
+            t.classList.add('apex-txd-fit');
+            var wrap = t.parentElement;
+            var avail = wrap ? wrap.clientWidth : 0;
+            if (!avail) return;
+            var head = t.tHead.rows[0], n = head.cells.length, NAME = 1, PAD = 9;
+            var w = [];
+            for (var c = 0; c < n; c++) {
+                var th = head.cells[c];
+                var mx = textW((th.textContent || '').trim(), th) + PAD;
+                var rows = t.tBodies[0] ? t.tBodies[0].rows : [];
+                for (var r = 0; r < rows.length; r++) {
+                    var td = rows[r].cells[c]; if (!td || c === NAME) continue;
+                    (td.innerText || td.textContent || '').split('\n').forEach(function (line) {
+                        var lw = textW(line.trim(), td) + PAD;
+                        if (lw > mx) mx = lw;
+                    });
+                }
+                w.push(Math.ceil(mx));
+            }
+            var other = 0;
+            for (var k = 0; k < n; k++) if (k !== NAME) other += w[k];
+            var nameW = Math.max(96, avail - other - 2);
+            if (!cg) { cg = document.createElement('colgroup'); cg.className = 'apex-txd-cg'; t.insertBefore(cg, t.firstChild); }
+            var html = '';
+            for (var j = 0; j < n; j++) html += '<col style="width:' + (j === NAME ? nameW : w[j]) + 'px">';
+            cg.innerHTML = html;
+        } catch (e) {}
+    }
+    window._apexTxdFit = txdFit;
+    wrap('showTxDetail', function () { setTimeout(txdFit, 0); setTimeout(txdFit, 120); });
+    window.addEventListener('resize', function () { var s = $('tx-detail'); if (s && s.classList.contains('active')) txdFit(); });
 
     PS.version = '1.0.0';
 })();

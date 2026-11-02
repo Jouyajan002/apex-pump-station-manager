@@ -70,7 +70,7 @@
     if (document.getElementById('jouya-pwa-style')) return;
     var css = ''
       + '#jouya-pwa-install,#jouya-pwa-ios{position:fixed;left:0;right:0;bottom:0;z-index:2147483000;'
-      + 'font-family:Vazirmatn,"Segoe UI",Tahoma,sans-serif;direction:rtl;display:none;}'
+      + 'font-family:Estedad, Vazirmatn,"Segoe UI",Tahoma,sans-serif;direction:rtl;display:none;}'
       + '#jouya-pwa-install .jp-card,#jouya-pwa-ios .jp-card{margin:0 auto;max-width:520px;'
       + 'background:linear-gradient(135deg,#1e293b,#2563eb);color:#fff;border-radius:16px 16px 0 0;'
       + 'box-shadow:0 -6px 24px rgba(0,0,0,.28);padding:14px 16px;display:flex;align-items:center;gap:12px;}'

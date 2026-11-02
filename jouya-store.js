@@ -1,49 +1,41 @@
 /**
- * jouya-store.js — لایهٔ فشرده‌سازیِ شفافِ حافظهٔ محلی (فروشگاه جویا)
+ * jouya-store.js — موتورِ حافظهٔ IndexedDB برای «APEX Pump Station Manager»
  * ===========================================================================
- *  هدف: برداشتنِ سقفِ عملیِ ۵ مگابایتیِ localStorage، بدونِ تغییر در هیچ کدِ دیگری.
+ *  هدف: برداشتنِ سقفِ ~۵ مگابایتیِ localStorage. ظرفیت فقط به حافظهٔ دستگاه بستگی دارد.
  *
  *  چطور کار می‌کند
- *  ----------------
- *  این فایل فقط دو تابعِ Storage.prototype.setItem و getItem را «می‌پوشاند».
- *  هر مقداری که از یک آستانه بزرگ‌تر باشد پیش از نوشتن فشرده می‌شود و هنگامِ
- *  خواندن دوباره باز می‌شود. نامِ کلیدها، شمارِ کلیدها، ترتیبِ آن‌ها، removeItem،
- *  clear و پیمایشِ localStorage.key(i) هیچ‌کدام تغییر نمی‌کنند — برای بقیهٔ
- *  برنامه (database.js، script.js، sync-layer.js، drive-backup.js، …) هیچ چیز
- *  عوض نشده است و حتی نمی‌دانند این لایه وجود دارد.
- *
- *  چرا این شکل و نه IndexedDB
- *  ---------------------------
- *  IndexedDB ناهمگام (async) است و برای استفاده از آن باید ~۱۴۷۲ تابعِ برنامه به
- *  async تبدیل می‌شد؛ تلاشِ قبلی دقیقاً به همین دلیل سیستم را شکست (دو انبارِ
- *  موازی + به‌هم‌خوردنِ ترتیبِ راه‌اندازی). این لایه همگام (synchronous) است، یک
- *  انبار بیشتر وجود ندارد، و ترتیبِ بارگذاریِ اسکریپت‌ها دست نخورده است.
- *
- *  اندازه‌گیریِ واقعی روی دادهٔ کاربر (۱۴۳۲ معامله)
- *  ------------------------------------------------
- *    transactions         1,179,276 →  ~75,000 کاراکتر   (~۱۵×)
- *    cashboxTransactions    235,733 →  ~16,000 کاراکتر
- *    expenses               180,353 →  ~11,000 کاراکتر
- *  یعنی سقفِ عملی از ~۵٬۵۰۰ معامله به ~۸۰٬۰۰۰ معامله می‌رسد.
+ *   • هر مقدارِ بزرگ‌تر از ۸۱۹۲ کاراکتر در IndexedDB (پایگاهِ «apexps_store») ذخیره
+ *     می‌شود و در localStorage فقط یک نشانگرِ کوچک جایش می‌ماند. مقدارهای کوچک مثلِ
+ *     قبل در localStorage می‌مانند.
+ *   • همهٔ داده هنگامِ باز شدنِ برنامه در RAM بار می‌شود؛ پس getItem مثلِ قبل همگام و
+ *     فوری است و هیچ تابعی از برنامه تغییر نکرد.
+ *   • هر setItem همان لحظه در RAM اعمال و بلافاصله با یک تراکنشِ IndexedDB ثبت می‌شود.
+ *   • اسکریپت‌های برنامه (type="text/apex-boot") تا آماده‌شدنِ حافظه اجرا نمی‌شوند؛
+ *     لودرِ پایانِ index.html پس از JouyaStore.ready آن‌ها را به همان ترتیب اجرا می‌کند.
  *
  *  ایمنی
- *  -----
- *   • قالبِ ذخیره خودتوصیف است (سرآیندِ \u0000JQZ1|). مقدارِ فشرده‌نشده هم مثلِ
- *     قبل خوانده می‌شود، پس دادهٔ قبلیِ کاربران بدونِ هیچ مهاجرتی کار می‌کند.
- *   • پیش از نوشتن، نتیجه بلافاصله باز و با ورودی مقایسه می‌شود؛ اگر یکی نبود،
- *     مقدار به شکلِ خام (بدونِ فشرده‌سازی) نوشته می‌شود. هیچ داده‌ای در معرضِ
- *     خرابی قرار نمی‌گیرد.
- *   • اگر pako به هر دلیل بار نشود، همه‌چیز دقیقاً مثلِ قبل (خام) کار می‌کند.
- *   • خروجیِ JSON و پشتیبانِ گوگل‌درایو از همین getItem می‌خوانند، پس قالبِ
- *     فایل‌های خروجی هیچ تغییری نمی‌کند.
+ *   • انتقالِ دادهٔ قبلی: اول نوشتن در IndexedDB، بعد خواندنِ دوباره و مقایسهٔ حرف‌به‌حرف،
+ *     و فقط پس از آن جایگزینیِ مقدارِ localStorage با نشانگر. از هر کلید یک نسخهٔ
+ *     «پیش از انتقال» (مخزنِ bak) نگه داشته می‌شود.
+ *   • دادهٔ فشرده‌شدهٔ قدیمی (\u0000JQZ1|) هنوز خوانده می‌شود.
+ *   • اگر ثبت در IndexedDB شکست بخورد، نوارِ قرمزِ خطا با «تلاش دوباره» نشان داده می‌شود.
+ *   • اگر IndexedDB باز نشود، برنامه اجرا نمی‌شود و پیامِ «تلاش دوباره» می‌آید (تا دادهٔ
+ *     ناقص هرگز روی دادهٔ کامل نوشته نشود).
+ *   • با لایهٔ apex-ns.js (پیشوندِ apexps:) کار می‌کند؛ پس با APEX Store Manager قاطی نمی‌شود.
+ *
+ *  API:  window.JouyaStore = { ready, whenSaved(), reloadSafe(), report(), isBig(k), version }
+ *  ترتیب: apex-ns.js ← jouya-store.js ← (همهٔ بقیه). این فایل رمز/درهم نمی‌شود.
  * ===========================================================================
  */
 (function () {
     'use strict';
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    if (window.__JQ_STORE_READY) return;
+    if (typeof window === 'undefined' || typeof Storage === 'undefined') return;
+    if (window.JouyaStore) return;
 
-    // ── pako 2.1.0 (MIT AND Zlib) — داخلِ یک بستار، بدونِ آلوده‌کردنِ window ──────
+    var LS = null;
+    try { LS = window.localStorage; } catch (e) { LS = null; }
+
+    // ── pako 2.1.0 (MIT AND Zlib) — فقط برای خواندنِ دادهٔ فشردهٔ قدیمی (JQZ1) ──
     var pako = (function () {
         var exports = {}, module = { exports: exports };
         /*! pako 2.1.0 https://github.com/nodeca/pako @license (MIT AND Zlib) */
@@ -51,38 +43,34 @@
 
         return exports;
     })();
-
-    var deflateRaw = pako && pako.deflateRaw;
     var inflateRaw = pako && pako.inflateRaw;
-    if (typeof deflateRaw !== 'function' || typeof inflateRaw !== 'function') return;
 
-    // ── تنظیمات ───────────────────────────────────────────────────────────────
-    var MAGIC     = '\u0000JQZ1|';   // سرآیند؛ هیچ مقدارِ JSON/متنیِ برنامه با \u0000 شروع نمی‌شود
-    var THRESHOLD = 20000;           // فقط مقدارهای بزرگ فشرده می‌شوند
-    var LEVEL     = 3;               // سرعت/نسبتِ متعادل: ~۱۵× با ~۲۵ms برای ۱٫۲MB
-    var BITS      = 15;              // هر کاراکترِ خروجی ۱۵ بیت حمل می‌کند
-    var OFFSET    = 32;              // بازهٔ کاراکترها: 32..32799 (خارج از محدودهٔ surrogate)
+    // ── ثابت‌ها ──────────────────────────────────────────────────────────────
+    var LIMIT   = 8192;                 // بزرگ‌تر از این → IndexedDB
+    var PTR     = '\u0000APXIDB1|';     // نشانگرِ داخلِ localStorage
+    var JQZ     = '\u0000JQZ1|';        // قالبِ فشردهٔ قدیمی
+    var DBNAME  = 'apexps_store';       // جدا از Store Manager (apex_store / jouya_store)
+    var KV = 'kv', BAK = 'bak';
+    var VERSION = '1.0.0';
 
-    // ── بسته‌بندیِ بایت‌ها در کاراکترهای امنِ UTF-16 ─────────────────────────────
-    //  همان روشی که lz-string سال‌هاست با آن در localStorage می‌نویسد: هیچ کاراکترِ
-    //  نیمه‌جفتِ (lone surrogate) تولید نمی‌شود، پس رشته در هر موتوری سالم می‌ماند.
-    function pack(bytes) {
-        var out = [], buf = 0, bits = 0, i, n = bytes.length;
-        for (i = 0; i < n; i++) {
-            buf = (buf << 8) | bytes[i]; bits += 8;
-            while (bits >= BITS) { bits -= BITS; out.push(String.fromCharCode(OFFSET + ((buf >>> bits) & 32767))); }
-            buf &= (1 << bits) - 1;
-        }
-        if (bits > 0) out.push(String.fromCharCode(OFFSET + ((buf << (BITS - bits)) & 32767)));
-        // به قطعه‌های کوچک تقسیم می‌کنیم تا از سقفِ آرگومانِ apply عبور نکنیم
-        var s = '', CH = 8192;
-        for (i = 0; i < out.length; i += CH) s += out.slice(i, i + CH).join('');
-        return s;
-    }
+    var SP = Storage.prototype;
+    var nsGet = SP.getItem, nsSet = SP.setItem, nsRem = SP.removeItem, nsClear = SP.clear, nsKey = SP.key;
+    var lenDesc = Object.getOwnPropertyDescriptor(SP, 'length');
+    function lsLen() { try { return lenDesc && lenDesc.get ? lenDesc.get.call(LS) : LS.length; } catch (e) { return 0; } }
+    function lsKeys() { var a = [], n = lsLen(), i, k; for (i = 0; i < n; i++) { try { k = nsKey.call(LS, i); } catch (e) { k = null; } if (k != null) a.push(k); } return a; }
+
+    var mem = Object.create(null);      // کلید → مقدارِ بزرگ (منبعِ حقیقت در RAM)
+    var db = null, isReady = false, bootErr = null;
+    var pending = 0, waiters = [], lastErr = null, failedKeys = Object.create(null);
+
+    function isPtr(v) { return typeof v === 'string' && v.length >= PTR.length && v.slice(0, PTR.length) === PTR; }
+    function isJqz(v) { return typeof v === 'string' && v.length > JQZ.length && v.slice(0, JQZ.length) === JQZ; }
+
+    // ── خواندنِ قالبِ فشردهٔ قدیمی ────────────────────────────────────────────
     function unpack(str, byteLen) {
         var bytes = new Uint8Array(byteLen), buf = 0, bits = 0, o = 0, i, n = str.length;
         for (i = 0; i < n && o < byteLen; i++) {
-            buf = (buf * 32768) + ((str.charCodeAt(i) - OFFSET) & 32767); bits += BITS;
+            buf = (buf * 32768) + ((str.charCodeAt(i) - 32) & 32767); bits += 15;
             while (bits >= 8 && o < byteLen) {
                 bits -= 8;
                 bytes[o++] = Math.floor(buf / Math.pow(2, bits)) & 255;
@@ -91,129 +79,286 @@
         }
         return bytes;
     }
-
-    function encode(plain) {
-        var bytes = deflateRaw(plain, { level: LEVEL });
-        return MAGIC + bytes.length + '|' + pack(bytes);
-    }
-    function decode(stored) {
-        var i = stored.indexOf('|', MAGIC.length);
-        if (i < 0) return null;
-        var len = parseInt(stored.slice(MAGIC.length, i), 10);
-        if (!(len >= 0)) return null;
-        return inflateRaw(unpack(stored.slice(i + 1), len), { to: 'string' });
-    }
-    function isPacked(v) { return typeof v === 'string' && v.length > MAGIC.length && v.slice(0, MAGIC.length) === MAGIC; }
-
-    // ── حافظهٔ نهانِ خواندن ─────────────────────────────────────────────────────
-    //  بدونِ این، هر getItem('transactions') یک بازگشاییِ کامل بود و چون برنامه در هر
-    //  رندر ده‌ها بار آن را می‌خواند، کند می‌شد. کلیدِ اعتبارسنجی خودِ رشتهٔ ذخیره‌شده
-    //  است، پس اگر کسی (حتی تبِ دیگر) مقدار را عوض کند، نهان خودبه‌خود باطل می‌شود.
-    var cache = Object.create(null);
-
-    var S = window.Storage && window.Storage.prototype;
-    if (!S || typeof S.getItem !== 'function' || typeof S.setItem !== 'function') return;
-    var rawGet = S.getItem, rawSet = S.setItem, rawDel = S.removeItem, rawClear = S.clear;
-
-    S.getItem = function (key) {
-        var v = rawGet.call(this, key);
-        if (!isPacked(v)) return v;
-        var c = cache[key];
-        if (c && c.stored === v) return c.plain;
-        var plain;
-        try { plain = decode(v); } catch (e) { plain = null; }
-        if (plain === null || plain === undefined) return v;   // هرگز داده را پنهان نکن
-        cache[key] = { stored: v, plain: plain };
-        return plain;
-    };
-
-    S.setItem = function (key, value) {
-        var plain = (typeof value === 'string') ? value : String(value);
-        if (plain.length < THRESHOLD) {
-            delete cache[key];
-            return rawSet.call(this, key, plain);
-        }
-        var c = cache[key];
-        if (c && c.plain === plain && rawGet.call(this, key) === c.stored) return;   // بدونِ تغییر
-        var packed = null;
+    var jqzCache = Object.create(null);
+    function decodeJqz(stored) {
+        if (jqzCache.k === stored) return jqzCache.v;
         try {
-            packed = encode(plain);
-            // بازبینیِ فوری: اگر بازگشایی دقیقاً همان ورودی نبود، فشرده‌سازی را رها کن.
-            if (decode(packed) !== plain) packed = null;
-        } catch (e) { packed = null; }
-        if (packed === null || packed.length >= plain.length) {
-            delete cache[key];
-            return rawSet.call(this, key, plain);
-        }
-        rawSet.call(this, key, packed);       // خطای سهمیه همان‌طور که بود بالا می‌رود
-        cache[key] = { stored: packed, plain: plain };
-    };
-
-    if (typeof rawDel === 'function') {
-        S.removeItem = function (key) { delete cache[key]; return rawDel.call(this, key); };
-    }
-    if (typeof rawClear === 'function') {
-        S.clear = function () { cache = Object.create(null); return rawClear.call(this); };
+            var i = stored.indexOf('|', JQZ.length); if (i < 0) return null;
+            var len = parseInt(stored.slice(JQZ.length, i), 10); if (!(len >= 0)) return null;
+            var out = inflateRaw(unpack(stored.slice(i + 1), len), { to: 'string' });
+            jqzCache = { k: stored, v: out };
+            return out;
+        } catch (e) { return null; }
     }
 
-    // ── ابزارِ بازبینی (فقط گزارش؛ هیچ اثری بر منطق ندارد) ───────────────────────
-    // نوشتن/خواندنِ «خامِ واقعی» — فقط برای ابزارِ عیب‌یابی و آزمون؛ برنامه از آن
-    // استفاده نمی‌کند. (بدونِ این، یک ابزارِ آزمون که می‌خواهد حافظه را لبریز کند،
-    // ناخواسته از خودِ لایهٔ فشرده‌سازی رد می‌شود و هرگز به سقف نمی‌رسد.)
-    window.__jqStoreRawSet = function (key, value) { return rawSet.call(localStorage, key, value); };
-    window.__jqStoreRawGet = function (key) { return rawGet.call(localStorage, key); };
-    window.__jqStoreRawLen = function (key) {
-        try { var v = rawGet.call(localStorage, key); return v == null ? 0 : v.length; } catch (e) { return 0; }
-    };
-    window.__jqStoreIsPacked = function (key) {
-        try { return isPacked(rawGet.call(localStorage, key)); } catch (e) { return false; }
-    };
-    window.__jqStoreReport = function () {
-        var rows = [], total = 0, plainTotal = 0, i, k, raw, pl;
+    // ── IndexedDB ────────────────────────────────────────────────────────────
+    function openDb() {
+        return new Promise(function (res, rej) {
+            var req, t = setTimeout(function () { rej(new Error('timeout')); }, 20000);
+            try { req = indexedDB.open(DBNAME, 1); } catch (e) { clearTimeout(t); rej(e); return; }
+            req.onupgradeneeded = function () {
+                var d = req.result;
+                if (!d.objectStoreNames.contains(KV)) d.createObjectStore(KV);
+                if (!d.objectStoreNames.contains(BAK)) d.createObjectStore(BAK);
+            };
+            req.onsuccess = function () { clearTimeout(t); res(req.result); };
+            req.onerror = function () { clearTimeout(t); rej(req.error || new Error('open failed')); };
+            req.onblocked = function () { /* منتظرِ بسته‌شدنِ تبِ دیگر؛ timeout مراقب است */ };
+        });
+    }
+    function readAll(store) {
+        return new Promise(function (res, rej) {
+            var out = Object.create(null), tx = db.transaction(store, 'readonly');
+            var cur = tx.objectStore(store).openCursor();
+            cur.onsuccess = function () { var c = cur.result; if (c) { out[c.key] = c.value; c.continue(); } };
+            tx.oncomplete = function () { res(out); };
+            tx.onerror = tx.onabort = function () { rej(tx.error || new Error('read failed')); };
+        });
+    }
+    function txDone(tx) {
+        return new Promise(function (res, rej) {
+            tx.oncomplete = function () { res(); };
+            tx.onerror = tx.onabort = function () { rej(tx.error || new Error('tx failed')); };
+        });
+    }
+    function settle() {
+        if (pending > 0) return;
+        var w = waiters; waiters = [];
+        w.forEach(function (f) { try { f(); } catch (e) {} });
+    }
+    // یک نوشتن/حذف — به ترتیبِ صدا زدن روی همان اتصال اجرا می‌شود
+    function idbWrite(op, key, value, after) {
+        if (!db) return;
+        pending++;
+        var tx;
         try {
-            for (i = 0; i < localStorage.length; i++) {
-                k = localStorage.key(i);
-                raw = rawGet.call(localStorage, k) || '';
-                pl = isPacked(raw) ? (localStorage.getItem(k) || '') : raw;
-                total += raw.length + k.length;
-                plainTotal += pl.length + k.length;
-                rows.push({ key: k, stored: raw.length, plain: pl.length, packed: isPacked(raw) });
-            }
-        } catch (e) {}
-        rows.sort(function (a, b) { return b.stored - a.stored; });
-        return {
-            storedChars: total, plainChars: plainTotal, limitChars: 5242880,
-            usedPercent: Math.round(total / 5242880 * 1000) / 10,
-            ratio: total ? Math.round(plainTotal / total * 10) / 10 : 1,
-            top: rows.slice(0, 12)
+            tx = db.transaction(KV, 'readwrite');
+            if (op === 'put') tx.objectStore(KV).put(value, key);
+            else if (op === 'del') tx.objectStore(KV).delete(key);
+            else if (op === 'clear') tx.objectStore(KV).clear();
+        } catch (e) { pending--; onFail(key, e); settle(); return; }
+        tx.oncomplete = function () {
+            pending--;
+            if (key != null) delete failedKeys[key];
+            try { if (after) after(); } catch (e) {}
+            if (!Object.keys(failedKeys).length) hideBar();
+            settle();
         };
-    };
-    // فشرده‌سازیِ یک‌بارهٔ کلیدهای بزرگی که از قبل خام ذخیره شده‌اند. هیچ داده‌ای
-    // تغییر نمی‌کند — فقط همان مقدار دوباره و فشرده نوشته می‌شود. اگر چیزی خطا داد،
-    // همان کلید خام می‌ماند و برنامه بدونِ هیچ تفاوتی کار می‌کند.
-    window.__jqStoreCompact = function () {
-        var done = 0, saved = 0, keys = [], i, k, raw;
-        try { for (i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i)); } catch (e) {}
-        for (i = 0; i < keys.length; i++) {
-            k = keys[i]; if (!k) continue;
+        tx.onerror = tx.onabort = function (ev) {
+            try { if (ev && ev.preventDefault) ev.preventDefault(); } catch (e) {}
+            pending--; onFail(key, tx.error); settle();
+        };
+    }
+    function onFail(key, err) {
+        lastErr = err || new Error('write failed');
+        if (key != null) failedKeys[key] = 1;
+        try { console.error('[JouyaStore] ثبت در حافظهٔ دستگاه ناموفق:', key, err); } catch (e) {}
+        showBar();
+    }
+    function putBig(k, v) {
+        idbWrite('put', k, v, function () {
+            // نشانگر فقط پس از ثبتِ قطعی نوشته می‌شود (اگر برنامه وسطِ کار بسته شد،
+            // مقدارِ قبلی سالم می‌ماند)
+            try { if (mem[k] === v && !isPtr(nsGet.call(LS, k))) nsSet.call(LS, k, PTR); } catch (e) {}
+        });
+    }
+
+    // ── نوارِ قرمزِ خطا ───────────────────────────────────────────────────────
+    function showBar() {
+        try {
+            var b = document.getElementById('apx-store-errbar');
+            if (!b) {
+                b = document.createElement('div');
+                b.id = 'apx-store-errbar';
+                b.setAttribute('dir', 'rtl');
+                b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483600;background:#dc2626;color:#fff;' +
+                    'font:600 13px/1.7 Estedad,Vazirmatn,Tahoma,sans-serif;padding:8px 14px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;box-shadow:0 4px 14px rgba(0,0,0,.25)';
+                b.innerHTML = '<span>⚠ ذخیرهٔ اطلاعات در حافظهٔ دستگاه ناموفق بود. برنامه را نبندید.</span>' +
+                    '<button type="button" style="background:#fff;color:#dc2626;border:0;border-radius:8px;padding:4px 12px;font:700 12px Estedad,Vazirmatn,Tahoma,sans-serif;cursor:pointer">تلاش دوباره</button>';
+                b.querySelector('button').onclick = function () { retryFailed(); };
+                (document.body || document.documentElement).appendChild(b);
+            }
+            b.style.display = 'flex';
+        } catch (e) {}
+    }
+    function hideBar() { try { var b = document.getElementById('apx-store-errbar'); if (b) b.style.display = 'none'; } catch (e) {} }
+    function retryFailed() {
+        Object.keys(failedKeys).forEach(function (k) {
+            if (Object.prototype.hasOwnProperty.call(mem, k)) putBig(k, mem[k]);
+            else delete failedKeys[k];
+        });
+        if (!Object.keys(failedKeys).length) hideBar();
+    }
+
+    // ── صفحهٔ «حافظه باز نشد» ──────────────────────────────────────────────────
+    function showFatal(err) {
+        var draw = function () {
             try {
-                raw = rawGet.call(localStorage, k);
-                if (raw == null || raw.length < THRESHOLD || isPacked(raw)) continue;
-                var before = raw.length;
-                localStorage.setItem(k, raw);
-                var after = window.__jqStoreRawLen(k);
-                if (after < before) { done++; saved += (before - after); }
-            } catch (e) { /* همان کلید خام می‌ماند */ }
+                var d = document.createElement('div');
+                d.id = 'apx-store-fatal';
+                d.setAttribute('dir', 'rtl');
+                d.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#fff;display:flex;align-items:center;justify-content:center;' +
+                    'font-family:Estedad,Vazirmatn,Tahoma,sans-serif;text-align:center;padding:24px;color:#1e3a5f';
+                d.innerHTML = '<div style="max-width:420px"><div style="font-size:42px">⚠</div>' +
+                    '<div style="font-weight:800;font-size:18px;margin:8px 0">حافظهٔ برنامه باز نشد</div>' +
+                    '<div style="color:#64748b;font-size:14px;line-height:1.9">برای حفظِ اطلاعاتِ شما برنامه اجرا نشد. لطفاً دوباره تلاش کنید. ' +
+                    'اگر مرورگر در حالتِ خصوصی (Incognito) است، آن را در حالتِ عادی باز کنید.</div>' +
+                    '<div style="color:#94a3b8;font-size:11px;margin-top:8px;direction:ltr">' + String((err && (err.name || err.message)) || err || '').replace(/[<>&]/g, '') + '</div>' +
+                    '<button type="button" onclick="location.reload()" style="margin-top:16px;background:#1e3a5f;color:#fff;border:0;border-radius:12px;padding:11px 26px;font:700 15px Estedad,Vazirmatn,Tahoma,sans-serif;cursor:pointer">تلاش دوباره</button></div>';
+                document.body.appendChild(d);
+                try { document.documentElement.classList.remove('jouya-show-loader'); } catch (e) {}
+            } catch (e) {}
+        };
+        if (document.body) draw(); else document.addEventListener('DOMContentLoaded', draw);
+    }
+
+    // ── راه‌اندازی: باز کردن، بارِ RAM، پاکسازیِ یتیم‌ها، انتقالِ دادهٔ قبلی ─────
+    function init() {
+        if (!LS) return Promise.resolve();
+        if (typeof indexedDB === 'undefined' || !indexedDB) return Promise.reject(new Error('IndexedDB unavailable'));
+        return openDb().then(function (d) {
+            db = d;
+            try { db.onversionchange = function () { try { db.close(); } catch (e) {} }; } catch (e) {}
+            return readAll(KV);
+        }).then(function (all) {
+            var keys = lsKeys(), raw, i, k, live = Object.create(null), toMigrate = [];
+            for (i = 0; i < keys.length; i++) {
+                k = keys[i];
+                try { raw = nsGet.call(LS, k); } catch (e) { raw = null; }
+                if (raw == null) continue;
+                if (isPtr(raw)) {
+                    live[k] = 1;
+                    if (Object.prototype.hasOwnProperty.call(all, k)) mem[k] = all[k];
+                    else { try { console.warn('[JouyaStore] مقدارِ «' + k + '» در IndexedDB پیدا نشد'); } catch (e) {} }
+                } else if (raw.length > LIMIT || isJqz(raw)) {
+                    toMigrate.push(k);
+                }
+            }
+            // یتیم‌ها (کلیدی که در IndexedDB هست ولی دیگر نشانگر ندارد) پاک می‌شوند
+            var orphans = Object.keys(all).filter(function (x) { return !live[x]; });
+            var p = Promise.resolve();
+            if (orphans.length) {
+                p = p.then(function () {
+                    var tx = db.transaction(KV, 'readwrite'), st = tx.objectStore(KV);
+                    orphans.forEach(function (x) { st.delete(x); });
+                    return txDone(tx);
+                }).catch(function () {});
+            }
+            toMigrate.forEach(function (key) { p = p.then(function () { return migrateKey(key); }); });
+            return p;
+        }).then(function () {
+            isReady = true;
+            try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) {}
+        });
+    }
+    // انتقالِ امنِ یک کلید: نوشتن ← بازخوانی و مقایسه ← فقط بعد جایگزینی با نشانگر
+    function migrateKey(k) {
+        var raw;
+        try { raw = nsGet.call(LS, k); } catch (e) { return Promise.resolve(); }
+        if (raw == null || isPtr(raw)) return Promise.resolve();
+        var plain = isJqz(raw) ? decodeJqz(raw) : raw;
+        if (plain == null) return Promise.resolve();           // باز نشد → دست نزن
+        var tx = db.transaction([KV, BAK], 'readwrite');
+        tx.objectStore(KV).put(plain, k);
+        tx.objectStore(BAK).put({ value: raw, at: Date.now() }, 'premig:' + k);
+        return txDone(tx).then(function () {
+            return new Promise(function (res) {
+                var t2 = db.transaction(KV, 'readonly'), r = t2.objectStore(KV).get(k);
+                t2.oncomplete = function () { res(r.result); };
+                t2.onerror = t2.onabort = function () { res(null); };
+            });
+        }).then(function (back) {
+            if (back === plain) {               // مقایسهٔ حرف‌به‌حرف
+                mem[k] = plain;
+                try { nsSet.call(LS, k, PTR); } catch (e) {}
+            } else {
+                try { console.warn('[JouyaStore] انتقالِ «' + k + '» تأیید نشد؛ در localStorage ماند'); } catch (e) {}
+            }
+        }).catch(function (e) { try { console.warn('[JouyaStore] انتقالِ «' + k + '» ناموفق', e); } catch (x) {} });
+    }
+
+    // ── پوشاندنِ Storage (فقط localStorage؛ sessionStorage دست نمی‌خورد) ───────
+    SP.getItem = function (key) {
+        if (this !== LS) return nsGet.call(this, key);
+        var k = String(key);
+        if (Object.prototype.hasOwnProperty.call(mem, k)) return mem[k];
+        var v = nsGet.call(this, k);
+        if (v != null && v.charCodeAt(0) === 0) {
+            if (isPtr(v)) return null;                  // پیدا نشد (هشدار در init)
+            if (isJqz(v)) { var d = decodeJqz(v); return d == null ? v : d; }
         }
-        return { compacted: done, savedChars: saved };
+        return v;
+    };
+    SP.setItem = function (key, value) {
+        if (this !== LS) return nsSet.call(this, key, value);
+        var k = String(key), v = String(value);
+        if (db && v.length > LIMIT) {
+            if (mem[k] === v) return;                   // بدونِ تغییر
+            mem[k] = v;
+            var cur = null;
+            try { cur = nsGet.call(LS, k); } catch (e) {}
+            if (cur == null) { try { nsSet.call(LS, k, PTR); } catch (e) {} }   // کلیدِ تازه: در key()/length دیده شود
+            putBig(k, v);
+            return;
+        }
+        if (Object.prototype.hasOwnProperty.call(mem, k)) {
+            delete mem[k];
+            var r = nsSet.call(LS, k, v);
+            idbWrite('del', k);
+            return r;
+        }
+        return nsSet.call(LS, k, v);
+    };
+    SP.removeItem = function (key) {
+        if (this !== LS) return nsRem.call(this, key);
+        var k = String(key);
+        if (Object.prototype.hasOwnProperty.call(mem, k)) { delete mem[k]; idbWrite('del', k); }
+        return nsRem.call(LS, k);
+    };
+    SP.clear = function () {
+        if (this !== LS) return nsClear.call(this);
+        mem = Object.create(null);
+        idbWrite('clear', null);
+        return nsClear.call(LS);
     };
 
+    // ── API ──────────────────────────────────────────────────────────────────
+    var readyP = init().catch(function (e) {
+        bootErr = e;
+        try { console.error('[JouyaStore] حافظه باز نشد:', e); } catch (x) {}
+        showFatal(e);
+        throw e;
+    });
+    window.JouyaStore = {
+        version: VERSION,
+        ready: readyP,
+        isReady: function () { return isReady; },
+        error: function () { return bootErr || lastErr; },
+        whenSaved: function () {
+            return new Promise(function (res) { if (pending <= 0) res(); else waiters.push(res); });
+        },
+        // بارگذاریِ دوباره فقط پس از ثبتِ قطعیِ همهٔ نوشتن‌ها (حداکثر ۸ ثانیه انتظار)
+        reloadSafe: function () {
+            var go = function () { try { location.reload(); } catch (e) {} };
+            var t = setTimeout(go, 8000);
+            window.JouyaStore.whenSaved().then(function () { clearTimeout(t); go(); });
+        },
+        isBig: function (k) { return Object.prototype.hasOwnProperty.call(mem, String(k)); },
+        pending: function () { return pending; },
+        report: function () {
+            var rows = [], k, total = 0;
+            for (k in mem) { rows.push({ key: k, chars: mem[k].length }); total += mem[k].length; }
+            rows.sort(function (a, b) { return b.chars - a.chars; });
+            return { engine: 'IndexedDB', db: DBNAME, ready: isReady, bigKeys: rows.length, bigChars: total, pending: pending, failed: Object.keys(failedKeys), top: rows.slice(0, 12) };
+        },
+        estimate: function () {
+            try { return navigator.storage.estimate(); } catch (e) { return Promise.resolve(null); }
+        }
+    };
+
+    // سازگاری با ابزارهای عیب‌یابیِ قبلی (__hbStorageReport)
+    window.__jqStoreRawLen = function (k) { try { var v = nsGet.call(LS, k); return v == null ? 0 : v.length; } catch (e) { return 0; } };
+    window.__jqStoreIsPacked = function (k) { return Object.prototype.hasOwnProperty.call(mem, String(k)); };
+    window.__jqStoreReport = function () { return window.JouyaStore.report(); };
     window.__JQ_STORE_READY = true;
-    // فشرده‌سازیِ اولیه در نخستینِ فرصتِ بیکار اجرا می‌شود تا راه‌اندازیِ برنامه
-    // ذره‌ای هم کند نشود. تا پیش از آن هم همه‌چیز مثلِ قبل کار می‌کند.
-    try {
-        var kick = function () { try { window.__jqStoreCompact(); } catch (e) {} };
-        if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(kick, { timeout: 8000 });
-        else setTimeout(kick, 2500);
-    } catch (e) {}
 })();
