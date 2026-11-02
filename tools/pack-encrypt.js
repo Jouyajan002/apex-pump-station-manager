@@ -35,7 +35,8 @@ catch (e) { console.log('::warning::[pack] tools/aesctr.js پیدا نشد؛ ر�
 
 // فایل‌هایی که نباید رمز شوند (بوت‌استرپ و سرویس‌ورکر)
 // apex-ns.js پیش از __jouya_dec.js بارگذاری می‌شود (جداسازیِ حافظه)، پس نباید رمز شود
-var SKIP = { '__jouya_dec.js': 1, 'service-worker.js': 1, 'apex-ns.js': 1 };
+// jouya-store.js (موتورِ حافظهٔ IndexedDB) هم در <head> و پیش از رمزگشا اجرا می‌شود
+var SKIP = { '__jouya_dec.js': 1, 'service-worker.js': 1, 'apex-ns.js': 1, 'jouya-store.js': 1 };
 
 var DEC_FILENAME = '__jouya_dec.js';
 
