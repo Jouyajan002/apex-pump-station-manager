@@ -10481,3 +10481,141 @@ html, body { overflow-anchor: none; }
     overflow: visible !important; border: none !important; background: transparent !important;
     box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; width: 100% !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   APEX — صفحهٔ تمام‌صفحهٔ مشترک (.apex-ovl): تنظیمات بل + مرکز اعلانات
+   ═══════════════════════════════════════════════════════════════════════════ */
+html.apex-ovl-lock, body.apex-ovl-lock { overflow: hidden !important; }
+.apex-ovl {
+    position: fixed; inset: 0; top: 0; right: 0; bottom: 0; left: 0;
+    z-index: 2147483000; display: flex; flex-direction: column;
+    background: #eef2f7; color: #1a2533; direction: rtl;
+    font-family: Estedad, 'Vazirmatn', Tahoma, sans-serif;
+    animation: apexOvlIn .22s ease-out;
+    -webkit-overflow-scrolling: touch;
+}
+@keyframes apexOvlIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.apex-ovl *, .apex-ovl *::before, .apex-ovl *::after { box-sizing: border-box; }
+.apex-ovl .apex-ovl-bar {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+    min-height: 56px; padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top, 0px));
+    background: #1b2a4a; color: #fff; box-shadow: 0 2px 10px rgba(15, 23, 42, .25);
+}
+.apex-ovl .apex-ovl-back, .apex-ovl .apex-ovl-icon {
+    flex: 0 0 auto; width: 40px; height: 40px; min-width: 40px; padding: 0; margin: 0;
+    border: none; border-radius: 10px; background: rgba(255,255,255,.12); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 1rem; cursor: pointer;
+}
+.apex-ovl .apex-ovl-back:hover, .apex-ovl .apex-ovl-icon:hover { background: rgba(255,255,255,.22); }
+.apex-ovl .apex-ovl-title {
+    flex: 1 1 auto; min-width: 0; font-size: 1.05rem; font-weight: 800; display: flex; align-items: center; gap: 8px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.apex-ovl .apex-ovl-title span { overflow: hidden; text-overflow: ellipsis; }
+.apex-ovl .apex-ovl-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.apex-ovl .apex-ovl-save {
+    height: 40px; padding: 0 16px; margin: 0; border: none; border-radius: 10px; cursor: pointer;
+    background: #16a34a; color: #fff; font-weight: 800; font-size: .92rem; font-family: inherit;
+    display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 2px 8px rgba(22,163,74,.35);
+}
+.apex-ovl .apex-ovl-save:hover { background: #15803d; }
+
+/* ── تنظیمات بل ── */
+.abs-ovl .abs-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: row; overflow: hidden; }
+.abs-ovl .abs-tabs {
+    flex: 0 0 360px; width: 360px; max-width: 100%; overflow-y: auto; padding: 14px 12px 40px;
+    background: #f8fafc; border-left: 1px solid #dbe3ee;
+}
+.abs-ovl .abs-prev { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.abs-ovl .abs-prev-h { flex: 0 0 auto; padding: 12px 16px 4px; font-weight: 800; color: #475569; font-size: .9rem; display: flex; gap: 8px; align-items: center; }
+.abs-ovl .abs-prev-wrap { flex: 1 1 auto; overflow: auto; padding: 8px; }
+.abs-ovl .abs-prev-holder { position: relative; margin: 0 auto; overflow: hidden; border-radius: 6px; box-shadow: 0 6px 24px rgba(15,23,42,.14); background: #fff; }
+.abs-ovl #abs-prev-frame { position: absolute; top: 0; right: 0; border: 0; background: #fff; display: block; max-width: none; }
+.abs-ovl .abs-sec { background: #fff; border: 1px solid #dbe3ee; border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+.abs-ovl .abs-sec-h {
+    width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin: 0;
+    background: transparent; border: none; cursor: pointer; font-family: inherit; font-size: .95rem; font-weight: 800; color: #1b2a4a; text-align: right;
+}
+.abs-ovl .abs-sec-ico { width: 32px; height: 32px; border-radius: 9px; background: #e8eef8; color: #1b2a4a; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.abs-ovl .abs-sec-t { flex: 1 1 auto; }
+.abs-ovl .abs-sec-arr { color: #94a3b8; transition: transform .2s; }
+.abs-ovl .abs-sec.open .abs-sec-arr { transform: rotate(180deg); }
+.abs-ovl .abs-sec-b { display: none; padding: 4px 14px 14px; border-top: 1px solid #eef2f7; }
+.abs-ovl .abs-sec.open .abs-sec-b { display: block; }
+.abs-ovl .abs-sec-b label { display: block; font-size: .84rem; font-weight: 700; color: #475569; margin: 10px 0 5px; }
+.abs-ovl .abs-sec-b input[type="text"], .abs-ovl .abs-sec-b input[type="number"], .abs-ovl .abs-sec-b select {
+    width: 100%; height: 40px; padding: 6px 10px; margin: 0; border: 1px solid #cbd5e1; border-radius: 9px;
+    background: #fff; color: #1a2533; font-family: inherit; font-size: .9rem; direction: rtl;
+}
+.abs-ovl .abs-sec-b input:focus, .abs-ovl .abs-sec-b select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+.abs-ovl .abs-sec-b input[type="color"] { width: 100%; height: 40px; padding: 2px; margin: 0; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff; cursor: pointer; }
+.abs-ovl .abs-2col { display: flex; gap: 10px; }
+.abs-ovl .abs-2col > div { flex: 1 1 0; min-width: 0; }
+.abs-ovl .abs-hint { font-size: .78rem; color: #64748b; margin: 8px 0 0; line-height: 1.7; }
+.abs-ovl label.abs-ck { display: flex !important; align-items: center; gap: 9px; margin: 0 !important; padding: 9px 2px; font-weight: 600 !important; color: #1e293b !important; cursor: pointer; border-bottom: 1px dashed #eef2f7; }
+.abs-ovl label.abs-ck:last-child { border-bottom: none; }
+.abs-ovl label.abs-ck input { width: 18px; height: 18px; min-width: 18px; margin: 0; accent-color: #1b2a4a; cursor: pointer; }
+.abs-ovl .abs-img-row { display: flex; align-items: center; gap: 10px; }
+.abs-ovl .abs-img-row img { object-fit: contain; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; padding: 3px; flex: 0 0 auto; }
+.abs-ovl .abs-img-row input[type="file"] { flex: 1 1 auto; min-width: 0; font-size: .8rem; margin: 0; }
+@media (max-width: 900px) {
+    .abs-ovl .abs-body { flex-direction: column; overflow-y: auto; }
+    .abs-ovl .abs-tabs { flex: 0 0 auto; width: 100%; overflow: visible; border-left: none; border-bottom: 1px solid #dbe3ee; padding-bottom: 6px; }
+    .abs-ovl .abs-prev { flex: 0 0 auto; overflow: visible; }
+    .abs-ovl .abs-prev-wrap { overflow: visible; padding-bottom: 30px; }
+}
+@media (max-width: 480px) {
+    .apex-ovl .apex-ovl-save { padding: 0 12px; font-size: .85rem; }
+    .apex-ovl .apex-ovl-title { font-size: .98rem; }
+    .abs-ovl .abs-tabs { padding: 10px 8px 6px; }
+}
+
+/* ── مرکز اعلانات ── */
+.aan-ovl .aan-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px 12px 40px; }
+.aan-ovl .aan-list { max-width: 760px; margin: 0 auto; }
+.aan-ovl .aan-day { font-size: .82rem; font-weight: 800; color: #64748b; margin: 16px 4px 8px; }
+.aan-ovl .aan-day:first-child { margin-top: 2px; }
+.aan-ovl .aan-card {
+    position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 14px; margin-bottom: 10px;
+    background: #fff; border: 1px solid #dbe3ee; border-radius: 14px; box-shadow: 0 1px 4px rgba(15,23,42,.05); overflow: hidden;
+}
+.aan-ovl .aan-card.is-new { border-color: #bfdbfe; background: #f8fbff; }
+.aan-ovl .aan-card.is-new::before { content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 4px; background: #2563eb; }
+.aan-ovl .aan-ico { width: 42px; height: 42px; min-width: 42px; border-radius: 50%; background: #e8eef8; color: #1b2a4a; display: inline-flex; align-items: center; justify-content: center; font-size: 1rem; }
+.aan-ovl .aan-card.is-new .aan-ico { background: #dbeafe; color: #1d4ed8; }
+.aan-ovl .aan-main { flex: 1 1 auto; min-width: 0; }
+.aan-ovl .aan-top { display: flex; align-items: center; gap: 8px; }
+.aan-ovl .aan-title { flex: 1 1 auto; min-width: 0; font-weight: 800; color: #0f172a; font-size: .98rem; line-height: 1.6; }
+.aan-ovl .aan-badge { flex: 0 0 auto; background: #2563eb; color: #fff; font-size: .7rem; font-weight: 800; padding: 2px 9px; border-radius: 999px; }
+.aan-ovl .aan-text { margin-top: 5px; color: #334155; font-size: .9rem; line-height: 1.9; white-space: normal; overflow-wrap: anywhere; }
+.aan-ovl .aan-when { margin-top: 8px; color: #94a3b8; font-size: .76rem; display: flex; align-items: center; gap: 6px; }
+.aan-ovl .aan-state { text-align: center; color: #64748b; padding: 60px 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: .95rem; }
+.aan-ovl .aan-state > i { font-size: 2rem; color: #94a3b8; }
+.aan-ovl .aan-state.aan-err > i { color: #ef4444; }
+.aan-ovl .aan-err-msg { font-size: .75rem; color: #94a3b8; direction: ltr; max-width: 100%; overflow-wrap: anywhere; }
+.aan-ovl .aan-retry { margin-top: 4px; height: 40px; padding: 0 18px; border: none; border-radius: 10px; background: #1b2a4a; color: #fff; font-weight: 800; font-family: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+
+/* ── حالت تاریک ── */
+body.dark-mode .apex-ovl { background: #0f172a; color: #e2e8f0; }
+body.dark-mode .apex-ovl .apex-ovl-bar { background: #111c33; box-shadow: 0 2px 10px rgba(0,0,0,.5); }
+body.dark-mode .abs-ovl .abs-tabs { background: #111827; border-color: #1f2a3d; }
+body.dark-mode .abs-ovl .abs-prev-h { color: #94a3b8; }
+body.dark-mode .abs-ovl .abs-sec { background: #1e293b; border-color: #2b3a52; }
+body.dark-mode .abs-ovl .abs-sec-h { color: #e2e8f0; }
+body.dark-mode .abs-ovl .abs-sec-ico { background: #273449; color: #cbd5e1; }
+body.dark-mode .abs-ovl .abs-sec-b { border-color: #2b3a52; }
+body.dark-mode .abs-ovl .abs-sec-b label { color: #94a3b8; }
+body.dark-mode .abs-ovl label.abs-ck { color: #e2e8f0 !important; border-color: #2b3a52; }
+body.dark-mode .abs-ovl .abs-sec-b input[type="text"], body.dark-mode .abs-ovl .abs-sec-b input[type="number"], body.dark-mode .abs-ovl .abs-sec-b select,
+body.dark-mode .abs-ovl .abs-sec-b input[type="color"] { background: #0f172a; color: #e2e8f0; border-color: #334155; }
+body.dark-mode .abs-ovl .abs-hint { color: #94a3b8; }
+body.dark-mode .abs-ovl .abs-img-row input[type="file"] { color: #cbd5e1; }
+body.dark-mode .abs-ovl .abs-prev-holder { box-shadow: 0 6px 24px rgba(0,0,0,.5); }
+body.dark-mode .aan-ovl .aan-day { color: #94a3b8; }
+body.dark-mode .aan-ovl .aan-card { background: #1e293b; border-color: #2b3a52; box-shadow: none; }
+body.dark-mode .aan-ovl .aan-card.is-new { background: #1a2a45; border-color: #2c4a7a; }
+body.dark-mode .aan-ovl .aan-ico { background: #273449; color: #cbd5e1; }
+body.dark-mode .aan-ovl .aan-card.is-new .aan-ico { background: #1e3a6b; color: #bfdbfe; }
+body.dark-mode .aan-ovl .aan-title { color: #f1f5f9; }
+body.dark-mode .aan-ovl .aan-text { color: #cbd5e1; }
+body.dark-mode .aan-ovl .aan-state { color: #94a3b8; }

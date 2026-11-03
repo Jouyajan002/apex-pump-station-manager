@@ -2024,6 +2024,8 @@
         // setTimeout(setupAutoBackup, 3000);
         // ذخیره اکانت در Drive در پس‌زمینه (اگر متصل)
         setTimeout(syncAccountToDriveIfConnected, 5000);
+        // بررسیِ اعتبارِ لیسنس پس از ورود
+        try { LicenseGuard.afterLogin(); } catch (e) {}
     }
 
     async function syncAccountToDriveIfConnected() {
@@ -2634,6 +2636,449 @@
     };
 
     // =========================================================================
+    // ۱۳-ب. نگهبانِ اعتبارِ لیسنس (LicenseGuard)
+    // -------------------------------------------------------------------------
+    //  • تصمیمِ سرور (license_status) فقط وقتی پذیرفته می‌شود که پاسخ «ردیفِ لیسنس» داشته باشد
+    //    (کلیدِ expires_at یا max_devices)؛ نبودِ ردیف/خطا/آفلاین ⇒ هیچ تصمیمی گرفته نمی‌شود.
+    //  • وضعیتِ امضاشده در apex_license_state (همگام نمی‌شود) + نسخهٔ دوم در IndexedDB
+    //    (apexps_lic_mark/kv) + ساعتِ یکنواخت (apex_license_clock) در برابرِ عقب‌بردنِ ساعت.
+    //  • کاربرِ خارج‌شده یا بدونِ حساب هرگز قفل نمی‌شود. هیچ اطلاعاتی تغییر نمی‌کند یا پاک نمی‌شود.
+    // =========================================================================
+    const LicenseGuard = (function () {
+        var K_STATE = 'apex_license_state', K_CLOCK = 'apex_license_clock', K_UPG = 'apex_license_upg';
+        var K_WS = 'jouya_sync_workspace';
+        var SALT = 'APEXPS::lic::v1::7c2e';
+        var IDB_NAME = 'apexps_lic_mark', IDB_STORE = 'kv';      // جدا از Store Manager
+        var KABUL_MS = 4.5 * 3600 * 1000, SKEW_MS = 36 * 3600 * 1000;
+        var BAR_TEXT = 'مدت اعتبار کد فعال‌سازی شما تکمیل است. لطفاً با تیم APEX تماس بگیرید و لیسنس فعال‌سازی خود را تجدید نمائید.';
+        var TAMPER_TEXT = 'اطلاعات لیسنس روی این دستگاه معتبر نیست؛ برای بررسی به اینترنت وصل شوید';
+        var MONTHS = ['حمل', 'ثور', 'جوزا', 'سرطان', 'اسد', 'سنبله', 'میزان', 'عقرب', 'قوس', 'جدی', 'دلو', 'حوت'];
+
+        var _booted = false, _readDone = false, _readP = null;
+        var _seen = 0, _prevPerf = 0, _srvBase = null;
+        var _clockBad = false, _stateBad = false, _stateMem = null;
+        var _srvValidDay = null, _inflight = null, _locked = null;
+        var _idbP = null, _chain = Promise.resolve();
+
+        function _perf() { try { return (window.performance && typeof performance.now === 'function') ? performance.now() : Date.now(); } catch (e) { return Date.now(); } }
+        function _h(str) {
+            str = String(str);
+            var a = 5381, b = 2166136261, i, c;
+            for (i = 0; i < str.length; i++) {
+                c = str.charCodeAt(i);
+                a = ((a * 33) ^ c) >>> 0;
+                b = Math.imul ? (Math.imul(b ^ c, 16777619) >>> 0) : (((b ^ c) * 16777619) >>> 0);
+            }
+            return a.toString(36) + '.' + b.toString(36);
+        }
+        function _nz(v) { return v == null ? '' : String(v); }
+        function _stateSig(o) { return _h([_nz(o.ws), _nz(o.status), _nz(o.expires_at), _nz(o.activated_at), _nz(o.checkedAt), SALT].join('|')); }
+        function _clockSig(seen) { return _h('clock|' + seen + SALT); }
+        function _validClock(c) { return !!(c && typeof c === 'object' && typeof c.seen === 'number' && isFinite(c.seen) && c.sig === _clockSig(c.seen)); }
+        function _validState(s) { return !!(s && typeof s === 'object' && typeof s.ws === 'string' && typeof s.status === 'string' && s.sig === _stateSig(s)); }
+        function _signState(s) { s.sig = _stateSig(s); return s; }
+        // null = نبود؛ undefined = خراب (قابلِ خواندن نیست)
+        function _lsGetJ(k) { var raw; try { raw = localStorage.getItem(k); } catch (e) { return null; } if (raw == null) return null; try { var v = JSON.parse(raw); return (v && typeof v === 'object') ? v : undefined; } catch (e) { return undefined; } }
+        function _lsSetJ(k, o) { try { localStorage.setItem(k, JSON.stringify(o)); } catch (e) {} }
+
+        // ── تاریخ (روزِ کابل، بدونِ وابستگی به منطقهٔ زمانیِ دستگاه) ──
+        function _kabulDay(ms) { try { return new Date(ms + KABUL_MS).toISOString().slice(0, 10); } catch (e) { return null; } }
+        function _dayOf(v) {
+            if (v == null || v === '') return null;
+            var s = String(v);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+            var t = Date.parse(s);
+            return isNaN(t) ? null : _kabulDay(t);
+        }
+        function _today() { return _kabulDay(_seen || Date.now()); }
+        function _jal(v) {
+            var d = _dayOf(v);
+            if (!d) return '—';
+            try {
+                var p = d.split('-');
+                if (typeof window.gregorianToJalali === 'function') {
+                    var j = window.gregorianToJalali(+p[0], +p[1], +p[2]);
+                    return j[2] + ' ' + MONTHS[j[1] - 1] + ' ' + j[0];
+                }
+            } catch (e) {}
+            return d;
+        }
+
+        // ── IndexedDB: یک اتصالِ مشترک، نوشتن‌ها پشتِ‌سرِهم، و هیچ نوشتنی پیش از خواندنِ اول ──
+        function _idbOpen() {
+            if (_idbP) return _idbP;
+            _idbP = new Promise(function (res, rej) {
+                var t = setTimeout(function () { rej(new Error('timeout')); }, 4000);
+                try {
+                    if (typeof indexedDB === 'undefined' || !indexedDB) { clearTimeout(t); rej(new Error('no idb')); return; }
+                    var r = indexedDB.open(IDB_NAME, 1);
+                    r.onupgradeneeded = function () { var d = r.result; if (!d.objectStoreNames.contains(IDB_STORE)) d.createObjectStore(IDB_STORE); };
+                    r.onsuccess = function () { clearTimeout(t); res(r.result); };
+                    r.onerror = function () { clearTimeout(t); rej(r.error || new Error('open failed')); };
+                } catch (e) { clearTimeout(t); rej(e); }
+            });
+            _idbP.catch(function () { _idbP = null; });
+            return _idbP;
+        }
+        function _idbGet(key) {
+            return _idbOpen().then(function (d) {
+                return new Promise(function (res) {
+                    try {
+                        var tx = d.transaction(IDB_STORE, 'readonly'), rq = tx.objectStore(IDB_STORE).get(key);
+                        tx.oncomplete = function () { var v = rq.result; res(v === undefined ? null : ((v && typeof v === 'object') ? v : undefined)); };
+                        tx.onerror = tx.onabort = function () { res(null); };
+                    } catch (e) { res(null); }
+                });
+            }).catch(function () { return null; });
+        }
+        function _idbPut(key, val) {
+            if (!_readDone) return;
+            _chain = _chain.then(function () {
+                return _idbOpen().then(function (d) {
+                    return new Promise(function (res) {
+                        try {
+                            var tx = d.transaction(IDB_STORE, 'readwrite');
+                            tx.objectStore(IDB_STORE).put(val, key);
+                            tx.oncomplete = function () { res(); };
+                            tx.onerror = tx.onabort = function () { res(); };
+                        } catch (e) { res(); }
+                    });
+                });
+            }).catch(function () {});
+        }
+
+        // ── ساعتِ یکنواخت ──
+        function _tick() {
+            var p = _perf();
+            if (_srvBase) _seen = _srvBase.srv + (p - _srvBase.perf);
+            else _seen = Math.max(_seen, _seen + (p - _prevPerf), Date.now());
+            _prevPerf = p;
+            _seen = Math.floor(_seen);
+            if (_readDone) {
+                var rec = { seen: _seen, sig: _clockSig(_seen) };
+                _lsSetJ(K_CLOCK, rec);
+                _idbPut('clock', rec);
+            }
+            return _seen;
+        }
+        function _applyServerTime(srvMs) {
+            if (typeof srvMs !== 'number' || !isFinite(srvMs)) return;
+            var cur = _tick();
+            var base = (cur > srvMs + SKEW_MS) ? srvMs : Math.max(cur, srvMs);
+            _srvBase = { srv: base, perf: _perf() };   // از این پس ساعتِ ذخیره‌شده نادیده گرفته می‌شود
+            _seen = base; _prevPerf = _srvBase.perf;
+            _clockBad = false;
+            _tick();
+        }
+
+        // ── کاربرِ فعلی ──
+        function _user() {
+            var acc = null, lic = null, out = true, ws = '', linked = false;
+            try { acc = AuthDB.getAccount(); } catch (e) {}
+            try { lic = AuthDB.getLicense(); } catch (e) {}
+            try { out = AuthDB.isLoggedOut(); } catch (e) {}
+            try { ws = localStorage.getItem(K_WS) || ''; } catch (e) {}
+            try { linked = !!(window.JouyaAuth && typeof window.JouyaAuth.isLinked === 'function' && window.JouyaAuth.isLinked()); } catch (e) {}
+            if (!linked) { try { linked = !!localStorage.getItem('jouya_cloud_linked') || !!ws; } catch (e) {} }
+            return {
+                active: !!(acc && !out && ((lic && lic.code) || linked)),
+                acc: acc, lic: lic, ws: ws,
+                supa: !!(lic && /^supabase/i.test(String(lic.source || '')))
+            };
+        }
+
+        function _curState() {
+            var ls = _lsGetJ(K_STATE);
+            if (ls === null) {
+                if (_stateMem) { _lsSetJ(K_STATE, _stateMem); return { state: _stateMem, bad: false }; }
+                return { state: null, bad: _stateBad };
+            }
+            if (_validState(ls)) { _stateMem = ls; _stateBad = false; return { state: ls, bad: false }; }
+            return { state: null, bad: true };
+        }
+
+        // پاسخِ سرور ⇒ 'valid' | 'expired' | 'inactive' | null (بدونِ تصمیم)
+        function _decide(res) {
+            if (!res || typeof res !== 'object' || Array.isArray(res)) return null;
+            var hasRow = Object.prototype.hasOwnProperty.call(res, 'expires_at') || Object.prototype.hasOwnProperty.call(res, 'max_devices');
+            if (!hasRow) return null;
+            if (Object.prototype.hasOwnProperty.call(res, 'expired')) {       // SQLِ تازه: حکمِ سرور
+                if (res.expired === true) return 'expired';
+                if (res.active === false) return 'inactive';
+                return 'valid';
+            }
+            // SQLِ قدیمی: مقایسه با ساعتِ یکنواخت (روزِ پایان هنوز معتبر است)
+            var ed = _dayOf(res.expires_at);
+            if (ed && _today() > ed) return 'expired';
+            if (res.active === false) {
+                var t = Date.parse(res.expires_at);
+                return (!isNaN(t) && t <= (_seen || Date.now())) ? 'valid' : 'inactive';
+            }
+            return 'valid';
+        }
+
+        // ── ارزیابیِ محلی (بدونِ اینترنت) ──
+        function evaluate() {
+            if (!_readDone) return null;
+            var u = _user();
+            if (!u.active) { _unlock(); return null; }
+            var cs = _curState();
+            var s = (cs.state && cs.state.ws === u.ws) ? cs.state : null;
+            if (cs.bad || (_clockBad && (u.supa || s))) { _lock('tampered', null, u); return 'tampered'; }
+            var today = _today();
+            if (s) {
+                if (s.status === 'expired') { _lock('expired', s, u); return 'expired'; }
+                if (s.status === 'inactive') { _lock('inactive', s, u); return 'inactive'; }
+                var ed = _dayOf(s.expires_at);
+                if (ed && today > ed && _srvValidDay !== today) { _lock('expired', s, u); return 'expired'; }
+                _unlock(); return 'valid';
+            }
+            // پیش از نخستین پاسخِ سرور: تاریخِ انقضای زمانِ فعال‌سازی (فقط لیسنسِ Supabase)
+            if (u.supa && u.lic && u.lic.expires) {
+                var ed2 = _dayOf(u.lic.expires);
+                if (ed2 && today > ed2) { _lock('expired', null, u); return 'expired'; }
+            }
+            _unlock();
+            return null;
+        }
+
+        // ── بررسیِ سرور ──
+        function serverCheck() {
+            if (!_readDone) return (_readP || Promise.resolve()).then(function () { return serverCheck(); });
+            var u = _user();
+            if (!u.active) { _unlock(); return Promise.resolve({ decided: false }); }
+            var JS = window.JouyaSync;
+            if (!u.ws || !JS || typeof JS.licenseStatus !== 'function') return Promise.resolve({ decided: false });
+            if (_inflight) return _inflight;
+            _inflight = Promise.resolve().then(function () { return JS.licenseStatus(u.ws); }).then(function (res) {
+                if (res && typeof res === 'object' && res.server_now) _applyServerTime(Date.parse(res.server_now));
+                var verdict = _decide(res);
+                if (!verdict) return { decided: false };
+                var u2 = _user();
+                if (!u2.active || u2.ws !== u.ws) return { decided: false };
+                var prev = _curState().state;
+                var st = {
+                    ws: u.ws,
+                    status: verdict,
+                    expires_at: res.expires_at == null ? null : String(res.expires_at),
+                    activated_at: res.claimed_at ? String(res.claimed_at)
+                        : ((prev && prev.ws === u.ws && prev.activated_at) || (u.lic && u.lic.activatedAt) || null),
+                    checkedAt: _tick()
+                };
+                _signState(st);
+                _lsSetJ(K_STATE, st); _stateMem = st; _stateBad = false;
+                _idbPut('state', st);
+                _srvValidDay = (verdict === 'valid') ? _today() : null;
+                // تاریخِ انقضای محلی (فقط برای نمایش) هم‌گام می‌شود
+                try {
+                    var lic = AuthDB.getLicense();
+                    if (lic && (lic.expires == null ? null : String(lic.expires)) !== st.expires_at) { lic.expires = st.expires_at; AuthDB.saveLicense(lic); }
+                } catch (e) {}
+                evaluate();
+                return { decided: true, status: verdict, locked: !!_locked };
+            }).catch(function () { return { decided: false }; }).then(function (r) { _inflight = null; return r; });
+            return _inflight;
+        }
+
+        // ── رابطِ کاربری ──
+        function _injectStyle() {
+            if (document.getElementById('apex-lic-style')) return;
+            var st = document.createElement('style');
+            st.id = 'apex-lic-style';
+            st.textContent =
+                'html.apex-lic-on,html.apex-lic-on body{overflow:hidden !important;}' +
+                '#apex-lic-lock,#apex-lic-checking{position:fixed;inset:0;top:0;right:0;bottom:0;left:0;z-index:2147483400;direction:rtl;font-family:Estedad,Vazirmatn,Tahoma,sans-serif;}' +
+                '#apex-lic-lock{background:#eef2f7;color:#1a2533;display:flex;flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;}' +
+                '#apex-lic-lock *{box-sizing:border-box;}' +
+                '#apex-lic-lock .alk-bar{flex:0 0 auto;background:#dc2626;color:#fff;padding:14px 18px;padding-top:calc(14px + env(safe-area-inset-top,0px));font-weight:800;font-size:15px;line-height:1.9;text-align:center;display:flex;gap:10px;align-items:flex-start;justify-content:center;box-shadow:0 2px 10px rgba(127,29,29,.35);}' +
+                '#apex-lic-lock .alk-bar i{margin-top:6px;}' +
+                '#apex-lic-lock .alk-wrap{flex:1 0 auto;display:flex;align-items:center;justify-content:center;padding:22px 16px 34px;}' +
+                '#apex-lic-lock .alk-card{width:100%;max-width:480px;background:#fff;border:1px solid #dbe3ee;border-radius:18px;box-shadow:0 12px 40px rgba(15,23,42,.12);padding:24px 20px;text-align:center;}' +
+                '#apex-lic-lock .alk-ico{width:64px;height:64px;margin:0 auto 12px;border-radius:50%;background:#fee2e2;color:#dc2626;display:flex;align-items:center;justify-content:center;font-size:26px;}' +
+                '#apex-lic-lock .alk-status{font-weight:800;font-size:16px;color:#b91c1c;line-height:1.9;margin-bottom:14px;}' +
+                '#apex-lic-lock .alk-rows{text-align:right;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;margin-bottom:14px;}' +
+                '#apex-lic-lock .alk-row{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;font-size:13.5px;border-bottom:1px solid #eef2f7;}' +
+                '#apex-lic-lock .alk-row:last-child{border-bottom:none;}' +
+                '#apex-lic-lock .alk-row .k{color:#64748b;font-weight:700;white-space:nowrap;}' +
+                '#apex-lic-lock .alk-row .v{color:#0f172a;font-weight:700;text-align:left;overflow-wrap:anywhere;}' +
+                '#apex-lic-lock .alk-row .v.code{direction:ltr;letter-spacing:1px;}' +
+                '#apex-lic-lock .alk-safe{display:flex;gap:10px;align-items:flex-start;text-align:right;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:12px;padding:11px 12px;font-size:13px;line-height:1.9;margin-bottom:16px;}' +
+                '#apex-lic-lock .alk-safe i{margin-top:6px;}' +
+                '#apex-lic-lock .alk-retry{width:100%;height:46px;border:none;border-radius:12px;background:#1b2a4a;color:#fff;font-family:inherit;font-weight:800;font-size:14.5px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;}' +
+                '#apex-lic-lock .alk-retry[disabled]{opacity:.7;cursor:default;}' +
+                '#apex-lic-lock .alk-msg{min-height:22px;margin-top:10px;font-size:13px;font-weight:700;color:#b45309;line-height:1.8;}' +
+                '#apex-lic-checking{background:#eef2f7;color:#334155;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;font-size:15px;font-weight:700;}' +
+                '#apex-lic-checking i{font-size:34px;color:#1b2a4a;}' +
+                'body.dark-mode #apex-lic-lock,body.dark-mode #apex-lic-checking{background:#0f172a;color:#e2e8f0;}' +
+                'body.dark-mode #apex-lic-lock .alk-card{background:#1e293b;border-color:#334155;box-shadow:0 12px 40px rgba(0,0,0,.45);}' +
+                'body.dark-mode #apex-lic-lock .alk-ico{background:#3b1d1d;color:#f87171;}' +
+                'body.dark-mode #apex-lic-lock .alk-status{color:#fca5a5;}' +
+                'body.dark-mode #apex-lic-lock .alk-rows{border-color:#334155;}' +
+                'body.dark-mode #apex-lic-lock .alk-row{border-color:#2b3a52;}' +
+                'body.dark-mode #apex-lic-lock .alk-row .k{color:#94a3b8;}' +
+                'body.dark-mode #apex-lic-lock .alk-row .v{color:#f1f5f9;}' +
+                'body.dark-mode #apex-lic-lock .alk-safe{background:#0f2e25;border-color:#14532d;color:#a7f3d0;}' +
+                'body.dark-mode #apex-lic-lock .alk-retry{background:#2563eb;}' +
+                'body.dark-mode #apex-lic-lock .alk-msg{color:#fbbf24;}' +
+                'body.dark-mode #apex-lic-checking i{color:#93c5fd;}' +
+                '@media (max-width:480px){#apex-lic-lock .alk-bar{font-size:13.5px;padding:12px 12px;}#apex-lic-lock .alk-card{padding:20px 14px;}#apex-lic-lock .alk-row{font-size:12.5px;}}';
+            (document.head || document.documentElement).appendChild(st);
+        }
+        function _mask(code) {
+            var c = String(code || '').trim();
+            if (!c) return '—';
+            if (c.length <= 7) return c.slice(0, 2) + '••••' + c.slice(-2);
+            return c.slice(0, 4) + '••••' + c.slice(-3);
+        }
+        function _showChecking() {
+            _injectStyle();
+            if (document.getElementById('apex-lic-checking') || !document.body) return;
+            var d = document.createElement('div');
+            d.id = 'apex-lic-checking';
+            d.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i><div>در حال بررسی اعتبار لیسنس…</div>';
+            document.body.appendChild(d);
+            try { document.documentElement.classList.add('apex-lic-on'); } catch (e) {}
+        }
+        function _hideChecking() {
+            var d = document.getElementById('apex-lic-checking');
+            if (d && d.parentNode) d.parentNode.removeChild(d);
+            if (!_locked) { try { document.documentElement.classList.remove('apex-lic-on'); } catch (e) {} }
+        }
+        function _lock(kind, state, u) {
+            _injectStyle();
+            if (!document.body) return;
+            u = u || _user();
+            var acc = u.acc || {}, lic = u.lic || {};
+            var exp = (state && state.expires_at != null) ? state.expires_at : (lic.expires || null);
+            var act = (state && state.activated_at) || lic.activatedAt || null;
+            var statusText = kind === 'inactive' ? 'لیسنس این پمپ استیشن غیرفعال شده است'
+                : (kind === 'tampered' ? TAMPER_TEXT
+                : (exp ? ('تاریخ اعتبار (' + _jal(exp) + ') به پایان رسیده است') : 'تاریخ اعتبار لیسنس به پایان رسیده است'));
+            var storeName = acc.storeName || '';
+            try { if (!storeName && window.db && typeof window.db.getSettings === 'function') storeName = (window.db.getSettings() || {}).storeName || ''; } catch (e) {}
+            var row = function (k, v, cls) { return '<div class="alk-row"><span class="k">' + k + '</span><span class="v' + (cls ? (' ' + cls) : '') + '">' + escapeHtml(v || '—') + '</span></div>'; };
+            var el = document.getElementById('apex-lic-lock');
+            var fresh = !el;
+            if (fresh) { el = document.createElement('div'); el.id = 'apex-lic-lock'; el.setAttribute('role', 'alertdialog'); }
+            var keepMsg = (!fresh && _locked === kind) ? (function () { var m = el.querySelector('.alk-msg'); return m ? m.textContent : ''; })() : '';
+            el.innerHTML =
+                '<div class="alk-bar"><i class="fas fa-triangle-exclamation"></i><span>' + (kind === 'tampered' ? TAMPER_TEXT : BAR_TEXT) + '</span></div>' +
+                '<div class="alk-wrap"><div class="alk-card">' +
+                    '<div class="alk-ico"><i class="fas fa-lock"></i></div>' +
+                    '<div class="alk-status">' + escapeHtml(statusText) + '</div>' +
+                    '<div class="alk-rows">' +
+                        row('نام پمپ استیشن', storeName) +
+                        row('ایمیل', acc.email || '') +
+                        row('کد فعال‌سازی', _mask(lic.code), 'code') +
+                        row('تاریخ فعال‌سازی', act ? _jal(act) : '—') +
+                        row('اعتبار تا', exp ? _jal(exp) : '—') +
+                    '</div>' +
+                    '<div class="alk-safe"><i class="fas fa-shield-halved"></i><span>همهٔ اطلاعات شما روی این دستگاه محفوظ است و پاک نمی‌شود. به‌محض تجدید لیسنس از طرف تیم APEX، برنامه خودکار باز می‌شود.</span></div>' +
+                    '<button type="button" class="alk-retry" id="apex-lic-retry"><i class="fas fa-rotate-right"></i> <span>بررسی دوبارهٔ اعتبار</span></button>' +
+                    '<div class="alk-msg" id="apex-lic-msg">' + escapeHtml(keepMsg) + '</div>' +
+                '</div></div>';
+            if (fresh) document.body.appendChild(el);
+            _locked = kind;
+            try { document.documentElement.classList.add('apex-lic-on'); } catch (e) {}
+            var btn = document.getElementById('apex-lic-retry');
+            if (btn) btn.onclick = _retry;
+            _hideChecking();
+        }
+        function _retry() {
+            var btn = document.getElementById('apex-lic-retry');
+            var msg = document.getElementById('apex-lic-msg');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> <span>در حال بررسی…</span>'; }
+            if (msg) msg.textContent = '';
+            serverCheck().then(function (r) {
+                if (!_locked) return;
+                var b2 = document.getElementById('apex-lic-retry');
+                var m2 = document.getElementById('apex-lic-msg');
+                if (b2) { b2.disabled = false; b2.innerHTML = '<i class="fas fa-rotate-right"></i> <span>بررسی دوبارهٔ اعتبار</span>'; }
+                if (m2) m2.textContent = (r && r.decided) ? 'لیسنس هنوز تجدید نشده است'
+                    : 'اتصال به سرور برقرار نشد؛ لطفاً اتصال انترنت را بررسی کنید و دوباره تلاش کنید.';
+            });
+        }
+        function _unlock() {
+            var el = document.getElementById('apex-lic-lock');
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+            _locked = null;
+            if (!document.getElementById('apex-lic-checking')) { try { document.documentElement.classList.remove('apex-lic-on'); } catch (e) {} }
+        }
+
+        // ── راه‌اندازی ──
+        function _bootRead() {
+            var lsC = _lsGetJ(K_CLOCK), lsS = _lsGetJ(K_STATE);
+            // وضعیتِ قدیمیِ بدونِ امضا فقط یک‌بار امضا می‌شود
+            try {
+                if (lsS && !Object.prototype.hasOwnProperty.call(lsS, 'sig') && localStorage.getItem(K_UPG) !== '1' && typeof lsS.ws === 'string' && typeof lsS.status === 'string') {
+                    _signState(lsS); _lsSetJ(K_STATE, lsS); localStorage.setItem(K_UPG, '1');
+                }
+            } catch (e) {}
+            var timeout = new Promise(function (r) { setTimeout(function () { r([null, null]); }, 4000); });
+            return Promise.race([Promise.all([_idbGet('clock'), _idbGet('state')]), timeout]).catch(function () { return [null, null]; }).then(function (pair) {
+                var ic = pair[0], is = pair[1];
+                var cands = [lsC, ic].filter(_validClock).map(function (c) { return c.seen; });
+                if (cands.length) { _seen = Math.max.apply(null, cands); _clockBad = false; }
+                else { _seen = 0; _clockBad = (lsC !== null && !_validClock(lsC)) || (ic !== null && !_validClock(ic)); }
+                _prevPerf = _perf();
+                var vs = [lsS, is].filter(_validState);
+                if (vs.length) {
+                    vs.sort(function (a, b) { return (b.checkedAt || 0) - (a.checkedAt || 0); });
+                    _stateMem = vs[0]; _stateBad = false;
+                    _lsSetJ(K_STATE, _stateMem);
+                } else {
+                    _stateMem = null;
+                    _stateBad = (lsS !== null && !_validState(lsS)) || (is !== null && !_validState(is));
+                }
+                _readDone = true;
+                if (!_clockBad) _tick(); else _seen = Math.max(_seen, Date.now());
+                if (_stateMem) _idbPut('state', _stateMem);
+            });
+        }
+        function boot() {
+            if (_booted) return;
+            _booted = true;
+            try {
+                _injectStyle();
+                var u = _user();
+                var lsS = _lsGetJ(K_STATE);
+                var lsOk = _validState(lsS) && lsS.ws === u.ws;
+                if (u.active && u.supa && (!lsOk || !_validClock(_lsGetJ(K_CLOCK)))) _showChecking();
+                _readP = _bootRead().then(function () { _hideChecking(); evaluate(); }, function () { _readDone = true; _hideChecking(); evaluate(); });
+                setTimeout(serverCheck, 2500);
+                setTimeout(serverCheck, 12000);
+                setInterval(serverCheck, 10 * 60 * 1000);
+                setInterval(function () { if (!_readDone) return; if (!_clockBad) _tick(); evaluate(); }, 60 * 1000);
+                window.addEventListener('online', function () { setTimeout(serverCheck, 800); });
+                // پشتِ قفل هیچ کلیدی به برنامه نرسد
+                document.addEventListener('keydown', function (e) {
+                    if (!_locked) return;
+                    var lk = document.getElementById('apex-lic-lock');
+                    if (lk && lk.contains(e.target)) return;
+                    try { e.stopImmediatePropagation(); e.preventDefault(); } catch (x) {}
+                }, true);
+            } catch (e) { try { console.warn('[LicenseGuard] boot', e); } catch (x) {} }
+        }
+        function afterLogin() {
+            if (!_booted) { boot(); return; }
+            (_readP || Promise.resolve()).then(function () {
+                if (!_clockBad) _tick();
+                evaluate();
+                setTimeout(serverCheck, 1500);
+                setTimeout(serverCheck, 6000);
+            });
+        }
+        return {
+            boot: boot, afterLogin: afterLogin, evaluate: evaluate, serverCheck: serverCheck,
+            state: function () { return _curState().state; },
+            locked: function () { return _locked; },
+            today: function () { return _today(); },
+            _decide: _decide
+        };
+    })();
+    window.ApexLicenseGuard = LicenseGuard;
+
+    // =========================================================================
     // ۱۴. Bootstrap
     // =========================================================================
     function bootstrap() {
@@ -2663,11 +3108,13 @@
             setTimeout(setupSidebarUpdateHook, 1000);
             // بک‌آپ خودکار به‌طور کامل غیرفعال شد (طبق درخواست کاربر)
             // setTimeout(setupAutoBackup, 5000);
+            try { LicenseGuard.boot(); } catch (e) {}
             return;
         }
 
         document.body.style.overflow = 'hidden';
         buildAuthScreen();
+        try { LicenseGuard.boot(); } catch (e) {}   // کاربرِ واردنشده قفل نمی‌شود (قفلِ قبلی برداشته می‌شود)
     }
 
     if (document.readyState === 'loading') {

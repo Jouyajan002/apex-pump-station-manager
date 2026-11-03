@@ -49,6 +49,12 @@
 
     // تلاش برای بستنِ «بالاترین چیزِ باز» — اگر چیزی بست، true برمی‌گرداند.
     function closeTopOverlay() {
+        // ۰) صفحهٔ تمام‌صفحهٔ باز (تنظیمات بل / مرکز اعلانات) — بالاترینِ آن بسته می‌شود
+        try {
+            if (typeof window.__apexOvlBack === 'function' && document.querySelector('.apex-ovl')) {
+                if (window.__apexOvlBack()) return true;
+            }
+        } catch (e) {}
         // ۱) منوهای سه‌نقطه
         try {
             if (typeof ndAnyMenuOpen === 'function' && ndAnyMenuOpen()) {

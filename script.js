@@ -8,6 +8,7 @@
 try { __hbInstallStorageGuard(); } catch (e) {}
 try { _apexDigitApply(); } catch (e) {}   // شکلِ ارقام (فارسی/انگلیسی) — پیش از نخستین رندر
 try { __hbInstallRenderCoalescer(); } catch (e) {}
+try { _apexOvlInstall(); } catch (e) {}   // اورلیِ تمام‌صفحه: window.__apexOvlBack + Escape
 
 /* ==========================================================================
    مدیریت تب‌های امور مالی - نسخه نهایی
@@ -11901,6 +11902,29 @@ function updateHeaderInfo() {
 }
 
 // ==================== تابع تولید HTML بل جویا (طراحی A4) ====================
+// ── «بیلانس قبلی» برای چاپِ بل (فقط نمایش؛ هیچ چیزی ذخیره نمی‌شود) ──────────────
+//  بیلانسِ لحظه‌ایِ شخص به ارزِ همین بل از دفترِ حساب (buildPersonLedger)، منهای اثرِ خودِ همین بل.
+//  فروش/برگشت از فروش: مثبت = مشتری به ما بدهکار است. خرید/برگشت از خرید: مثبت = ما به فروشنده
+//  بدهکاریم (×۱-). بلِ بدونِ شخصِ ثبت‌شده (مشتری گذری) ⇒ null.
+function _apexBillPrevBalance(tx, isPurchaseSide) {
+    if (!tx) return null;
+    var pid = isPurchaseSide ? (tx.supplierId != null && tx.supplierId !== '' ? tx.supplierId : tx.personId)
+                             : (tx.customerId != null && tx.customerId !== '' ? tx.customerId : tx.personId);
+    if (pid == null || pid === '') return null;
+    var person = null;
+    try { person = (db.getPersons() || []).find(function (p) { return p && String(p.id) === String(pid); }) || null; } catch (e) { person = null; }
+    if (!person || typeof buildPersonLedger !== 'function') return null;
+    var cur = tx.currency || _baseCur();
+    var led = buildPersonLedger(person);
+    var bal = parseFloat((led.balances || {})[cur]) || 0;
+    (led.rows || []).forEach(function (r) {
+        if (r && r.id != null && String(r.id) === String(tx.id) && (r.currency || cur) === cur) bal -= (parseFloat(r.effect) || 0);
+    });
+    if (isPurchaseSide) bal = -bal;
+    return Math.round(bal * 100) / 100;
+}
+if (typeof window !== 'undefined') window._apexBillPrevBalance = _apexBillPrevBalance;
+
 function generateProfessionalInvoiceHTML(transaction, settings, printSettings) {
     settings = settings || {};
     printSettings = printSettings || {};
@@ -11995,8 +12019,8 @@ function generateProfessionalInvoiceHTML(transaction, settings, printSettings) {
     var barcodeSrc = S.billBarcode || '';
     var phoneText = S.billPhone || S.storePhone || '';
     var addressText = S.billAddress || S.storeAddress || '';
-    var minRows = parseInt(S.billMinRows);
-    if (isNaN(minRows)) minRows = 12;
+    // «حداقل تعداد سطر» (billMinRows) دیگر به کار نمی‌رود: جدولِ اقلام دقیقاً به تعدادِ اقلامِ بل
+    // سطر دارد. مقدارِ ذخیره‌شدهٔ قبلی دست نمی‌خورد.
 
     // ---- داده‌های معامله ----
     var items = transaction.items || [];
@@ -12055,7 +12079,8 @@ function generateProfessionalInvoiceHTML(transaction, settings, printSettings) {
         return '';
     }
     var _itemDetailArr = (items || []).map(_itemDetailText);
-    var hasDetails = _itemDetailArr.some(function (d) { return !!d; });
+    // «نمایش ستون جزئیات» (billShowDetails، پیش‌فرض روشن): خاموش ⇒ ستون هرگز چاپ نمی‌شود
+    var hasDetails = (S.billShowDetails !== false) && _itemDetailArr.some(function (d) { return !!d; });
 
     // ---- ردیف‌های اقلام ----
     // «جمع مبلغ» مستقیماً جمعِ همین سطرهای چاپ‌شده است (_printGoodsSum)، نه «مجموعِ ذخیره‌شده
@@ -12064,7 +12089,8 @@ function generateProfessionalInvoiceHTML(transaction, settings, printSettings) {
     // قیمتِ همان واحد را نشان می‌دهد (window._psInvoiceRow در pump-station.js).
     var rowsHtml = '';
     var rowCount = 0;
-    var _r3 = function (v) { return Math.round((parseFloat(v) || 0) * 1000) / 1000; };
+    // فقط جمع‌های تازه با دقتِ ۶ رقم گرد می‌شوند (حذفِ خطای اعشاریِ کامپیوتر)؛ نمایشِ مقدارها مثلِ قبل
+    var _r6 = function (v) { return Math.round((parseFloat(v) || 0) * 1e6) / 1e6; };
     var _printGoodsSum = 0;
     var _hasWastage = false;
     items.forEach(function (item, i) {
@@ -12082,35 +12108,25 @@ function generateProfessionalInvoiceHTML(transaction, settings, printSettings) {
         } else {
             try { if (typeof window._psInvoiceDesc === 'function') desc = window._psInvoiceDesc(item, desc); } catch (e) {}
         }
-        _printGoodsSum += _r3(lineTotal);
+        _printGoodsSum += lineTotal;
         rowsHtml +=
             '<tr>' +
                 '<td class="c-num">' + fn(rowCount + 1) + '</td>' +
                 '<td class="c-desc">' + esc(desc) + '</td>' +
-                '<td class="c-qty">' + fn(_r3(qty)) + (unit ? (' <span class="u">' + esc(unit) + '</span>') : '') + '</td>' +
+                '<td class="c-qty">' + fn(qty) + (unit ? (' <span class="u">' + esc(unit) + '</span>') : '') + '</td>' +
                 '<td class="c-price">' + fn(price) + '</td>' +
-                '<td class="c-total">' + fn(_r3(lineTotal)) + '</td>' +
+                '<td class="c-total">' + fn(lineTotal) + '</td>' +
                 (hasDetails ? ('<td class="c-details">' + (esc(_itemDetailArr[i]) || '&nbsp;') + '</td>') : '') +
             '</tr>';
         rowCount++;
     });
-    _printGoodsSum = _r3(_printGoodsSum);
+    _printGoodsSum = _r6(_printGoodsSum);
     // «مجموع ضایعات» = مجموعِ ذخیره‌شدهٔ بل (پیش از تخفیف) منهای جمعِ سطرهای جنس؛ پس ستونِ
     // مجموع‌ها همیشه با مجموعِ ذخیره‌شده یکی است. بلِ بدونِ ضایعات تغییری نمی‌کند.
-    var _printWastage = _hasWastage ? _r3((_grandTotal + _totalDiscount) - _printGoodsSum) : 0;
+    var _printWastage = _hasWastage ? _r6((_grandTotal + _totalDiscount) - _printGoodsSum) : 0;
     if (Math.abs(_printWastage) < 0.0005) _printWastage = 0;
-    // ردیف‌های خالی برای رسیدن به حداقل تعداد (فقط برای A4/A5)
-    if (!isThermal) {
-        for (var r = rowCount; r < minRows; r++) {
-            rowsHtml +=
-                '<tr class="empty-row">' +
-                    '<td class="c-num">' + fn(r + 1) + '</td>' +
-                    '<td class="c-desc">&nbsp;</td><td class="c-qty">&nbsp;</td><td class="c-price">&nbsp;</td><td class="c-total">&nbsp;</td>' +
-                    (hasDetails ? '<td class="c-details">&nbsp;</td>' : '') +
-                '</tr>';
-        }
-    }
-    if (rowCount === 0 && isThermal) {
+    // سطرهای خالی دیگر ساخته نمی‌شوند؛ بلِ بدونِ قلم در همهٔ اندازه‌های کاغذ یک سطرِ پیام دارد
+    if (rowCount === 0) {
         rowsHtml = '<tr><td colspan="' + (hasDetails ? 6 : 5) + '" style="text-align:center;padding:10px;color:#888;">قلمی ثبت نشده است</td></tr>';
     }
 
@@ -12197,6 +12213,38 @@ function generateProfessionalInvoiceHTML(transaction, settings, printSettings) {
             '.items .c-details { width: ' + (isThermal ? '28%' : '25%') + '; }';
     }
 
+    // ---- سطرهای مجموعِ پایینِ بل (شرطی) ----
+    //  تخفیف یا ضایعات > ۰: جمع مبلغ ← مجموع ضایعات ← تخفیف ← مجموع ← (بیلانس قبلی ← مجموع کل) ← پرداختی ← باقیمانده
+    //  بدونِ تخفیف و ضایعات: مجموع ← (بیلانس قبلی ← مجموع کل) ← پرداختی ← باقیمانده
+    //  «بیلانس قبلی» فقط با تنظیمِ billShowPrevBalance و فقط وقتی بل شخصِ ثبت‌شده دارد؛ چیزی ذخیره نمی‌شود.
+    function _billTotalsRowsHtml() {
+        var row = function (lbl, val, hl) { return '<div class="tot-row' + (hl ? ' hl' : '') + '"><span class="t-lbl">' + lbl + '</span><span class="t-val">' + fn(val) + '</span></div>'; };
+        var disc = _r6(_totalDiscount), wst = _r6(_printWastage);
+        var out = '';
+        if (disc > 0 || wst > 0) {
+            out += row('جمع مبلغ', _printGoodsSum);
+            if (wst > 0) out += row('مجموع ضایعات', wst);
+            if (disc > 0) out += row('تخفیف', disc);
+        }
+        out += row('مجموع', _grandTotal, true);
+        var prev = null;
+        if (S.billShowPrevBalance === true) {
+            if (printSettings && printSettings.samplePrevBalance != null && !isNaN(parseFloat(printSettings.samplePrevBalance))) prev = parseFloat(printSettings.samplePrevBalance);
+            else { try { prev = _apexBillPrevBalance(transaction, isPurchase); } catch (e) { prev = null; } }
+        }
+        if (prev != null) {
+            var d = isReturn ? -1 : 1;
+            out += row('بیلانس قبلی', prev);
+            if (prev !== 0) out += row('مجموع کل', _r6(prev + d * _grandTotal));
+            out += row('پرداختی', _paid);
+            out += row('باقیمانده', _r6(prev + d * (_grandTotal - _paid)));
+        } else {
+            out += row('پرداختی', _paid);
+            out += row('باقیمانده', _remaining);
+        }
+        return out;
+    }
+
     // ---- HTML ----
     var html = '<!DOCTYPE html><html dir="rtl" lang="fa"><head><meta charset="UTF-8"><title>' + docTitle + ' ' + esc(billNum) + '</title><style>' + css + '</style></head><body>' +
     '<div class="bill">' +
@@ -12240,12 +12288,7 @@ function generateProfessionalInvoiceHTML(transaction, settings, printSettings) {
                 '<div class="sig-line">مهر و امضاء</div>' +
             '</div>' +
             '<div class="totals">' +
-                '<div class="tot-row"><span class="t-lbl">جمع مبلغ</span><span class="t-val">' + fn(_printGoodsSum) + '</span></div>' +
-                (_printWastage ? ('<div class="tot-row"><span class="t-lbl">مجموع ضایعات</span><span class="t-val">' + fn(_printWastage) + '</span></div>') : '') +
-                '<div class="tot-row"><span class="t-lbl">تخفیف</span><span class="t-val">' + fn(_totalDiscount) + '</span></div>' +
-                '<div class="tot-row hl"><span class="t-lbl">مجموع</span><span class="t-val">' + fn(_grandTotal) + '</span></div>' +
-                '<div class="tot-row"><span class="t-lbl">پرداختی</span><span class="t-val">' + fn(_paid) + '</span></div>' +
-                '<div class="tot-row"><span class="t-lbl">باقیمانده</span><span class="t-val">' + fn(_remaining) + '</span></div>' +
+                _billTotalsRowsHtml() +
             '</div>' +
         '</div>' +
 
@@ -27636,6 +27679,8 @@ document.addEventListener('click', function(e) {
 
     // اگر کلیک داخل سایدبار بود، نادیده بگیر
     if (sidebar.contains(e.target)) return;
+    // کلیک داخلِ صفحهٔ تمام‌صفحه (تنظیمات بل/اعلانات) سایدبار را نمی‌بندد
+    if (e.target && e.target.closest && e.target.closest('.apex-ovl')) return;
 
     // اگر کلیک روی دکمه‌ای که سایدبار را باز/بسته می‌کند بود، نادیده بگیر
     const toggleBtn = document.getElementById('settings-toggle');
@@ -27649,7 +27694,21 @@ function closeSettingsSidebar() { closeSidebar(); }
 
 /** برگشت به لیست اصلی از زیربخش */
 function ssbGoBack() {
+    // برگشت به «والد» زیربخش (گروه «تنظیمات» / «تنظیمات اطلاعات»)، وگرنه لیست اصلی
+    var parent = _ssbParentOf(window.__ssbCurrentKey);
+    if (parent) { ssbOpenSub(parent); return; }
     ssbResetList();
+}
+
+/** والد هر زیربخش در منوی درختی سایدبار (بدون والد ⇒ لیست اصلی) */
+function _ssbParentOf(key) {
+    var map = {
+        display: 'settings', invoice: 'settings', numsys: 'settings', currency: 'settings',
+        notes: 'settings', security: 'settings', datasettings: 'settings',
+        excel: 'datasettings', importpersons: 'datasettings', serversync: 'datasettings',
+        dbinit: 'datasettings', delete: 'datasettings'
+    };
+    return (key && Object.prototype.hasOwnProperty.call(map, key)) ? map[key] : null;
 }
 
 /** نمایش دوباره لیست اصلی */
@@ -27662,10 +27721,14 @@ function ssbResetList() {
     if (subCont)   { subCont.style.display = 'none'; subCont.innerHTML = ''; }
     if (backBtn)   backBtn.classList.remove('visible');
     if (title)     title.innerHTML = '<i class="fas fa-cog"></i> تنظیمات';
+    window.__ssbCurrentKey = null;
 }
 
 /** باز کردن یک زیربخش */
 function ssbOpenSub(key) {
+    // «تنظیمات بل» و «مرکز اعلانات» صفحهٔ تمام‌صفحه دارند (اورلیِ .apex-ovl)
+    if (key === 'invoice') { apexBillSettingsOpen(); return; }
+    if (key === 'announcements') { apexAnnOpen(); return; }
     const mainList = document.getElementById('ssb-main-list');
     const subCont  = document.getElementById('ssb-sub-content');
     const backBtn  = document.getElementById('ssb-back-btn');
@@ -27675,6 +27738,7 @@ function ssbOpenSub(key) {
     if (mainList)  mainList.style.display = 'none';
     if (backBtn)   backBtn.classList.add('visible');
     if (title)     title.innerHTML = ssbGetTitle(key);
+    window.__ssbCurrentKey = key;
 
     subCont.style.display = '';
     subCont.innerHTML = ssbLoadSubContent(key);
@@ -27836,6 +27900,7 @@ function jouyaAnnApplyTagline(force) {
 function ssbGetTitle(key) {
     const titles = {
         store:    '<i class="fas fa-store"></i> اطلاعات پمپ استیشن',
+        settings: '<i class="fas fa-sliders-h"></i> تنظیمات',
         backup:   '<i class="fas fa-database"></i> پشتیبان‌گیری',
         display:  '<i class="fas fa-eye"></i> نمایش',
         invoice:  '<i class="fas fa-file-invoice-dollar"></i> تنظیمات بل',
@@ -27942,8 +28007,6 @@ function ssbLoadSubContent(key) {
                         <input type="color" id="ssb-bill-accent" value="#c8963c" style="width:100%;height:38px;padding:2px;border-radius:8px;">
                     </div>
                 </div>
-                <label>حداقل تعداد سطرهای جدول (برای A4/A5)</label>
-                <input type="number" id="ssb-bill-minrows" min="0" max="40" placeholder="12">
             </div>
 
             <div class="ssb-card">
@@ -28227,6 +28290,46 @@ function ssbLoadSubContent(key) {
                 </button>
             </div>`;
 
+        case 'settings':
+            return `
+            <ul class="ssb-main-list" style="display:block;padding:6px 4px;">
+                <li onclick="ssbOpenSub('display')">
+                    <span class="ssb-item-icon"><i class="fas fa-eye"></i></span>
+                    <span class="ssb-item-label">نمایش</span>
+                    <i class="fas fa-chevron-left ssb-arrow"></i>
+                </li>
+                <li onclick="ssbOpenSub('invoice')">
+                    <span class="ssb-item-icon"><i class="fas fa-file-invoice-dollar"></i></span>
+                    <span class="ssb-item-label">تنظیمات بل</span>
+                    <i class="fas fa-chevron-left ssb-arrow"></i>
+                </li>
+                <li onclick="ssbOpenSub('numsys')">
+                    <span class="ssb-item-icon"><i class="fas fa-sort-numeric-down"></i></span>
+                    <span class="ssb-item-label">سیستم اعداد</span>
+                    <i class="fas fa-chevron-left ssb-arrow"></i>
+                </li>
+                <li onclick="ssbOpenSub('currency')">
+                    <span class="ssb-item-icon"><i class="fas fa-coins"></i></span>
+                    <span class="ssb-item-label">واحد پول</span>
+                    <i class="fas fa-chevron-left ssb-arrow"></i>
+                </li>
+                <li onclick="ssbOpenSub('notes')">
+                    <span class="ssb-item-icon"><i class="fas fa-bell"></i></span>
+                    <span class="ssb-item-label">هشدار های داخل سیستم</span>
+                    <i class="fas fa-chevron-left ssb-arrow"></i>
+                </li>
+                <li onclick="ssbOpenSub('security')">
+                    <span class="ssb-item-icon"><i class="fas fa-lock"></i></span>
+                    <span class="ssb-item-label">امنیت</span>
+                    <i class="fas fa-chevron-left ssb-arrow"></i>
+                </li>
+                <li onclick="ssbOpenSub('datasettings')">
+                    <span class="ssb-item-icon"><i class="fas fa-cogs"></i></span>
+                    <span class="ssb-item-label">تنظیمات اطلاعات</span>
+                    <i class="fas fa-chevron-left ssb-arrow"></i>
+                </li>
+            </ul>`;
+
         case 'datasettings':
             return `
             <ul class="ssb-main-list" style="display:block;padding:6px 4px;">
@@ -28352,7 +28455,7 @@ function ssbPopulateForm(key) {
             _sv('ssb-bill-orientation', settings.billOrientation || 'portrait');
             _sv('ssb-bill-primary', settings.billPrimaryColor || '#1b2a4a');
             _sv('ssb-bill-accent', settings.billAccentColor || '#c8963c');
-            _sv('ssb-bill-minrows', (settings.billMinRows != null ? settings.billMinRows : 12));
+            _sv('ssb-bill-minrows', (settings.billMinRows != null ? settings.billMinRows : 12));   // فیلد حذف شده؛ اگر نباشد بی‌اثر است
             _sv('ssb-bill-font-family', settings.billFontFamily || 'vazirmatn');
             _sv('ssb-bill-base-font', (settings.billBaseFontSize != null ? settings.billBaseFontSize : ''));
             _sv('ssb-bill-title-font', (settings.billTitleFontSize != null ? settings.billTitleFontSize : ''));
@@ -28372,6 +28475,8 @@ function ssbPopulateForm(key) {
             _ck('ssb-bill-show-address', settings.billShowAddress !== false);
             _ck('ssb-bill-show-barcode', settings.billShowBarcode === true);
             _ck('ssb-bill-show-note', settings.billShowNote !== false);
+            _ck('ssb-bill-show-prevbal', settings.billShowPrevBalance === true);
+            _ck('ssb-bill-show-details', settings.billShowDetails !== false);
             // تصاویر (بازنشانی بافر آپلود موقت)
             window.__ssbBill = { billLogo: null, billSideImage: null, billBarcode: null };
             _img('ssb-bill-logo-preview', settings.billLogo || settings.storeLogo || '');
@@ -28718,19 +28823,21 @@ function ssbBillImgPreview(event, key, previewId) {
             window.__ssbBill[key] = src;
             var pv = document.getElementById(previewId);
             if (pv) { pv.src = src; pv.style.display = 'inline-block'; }
+            try { if (document.getElementById('abs-prev-frame')) _absSchedulePreview(); } catch (e2) {}
         }); };
         reader.readAsDataURL(file);
     } catch (e) { console.error('ssbBillImgPreview error:', e); }
 }
-function ssbSaveBill() {
+/** مقادیرِ فرمِ «تنظیمات بل» (برای ذخیره و پیش‌نمایشِ زنده) */
+function _ssbBillPayload() {
     var g = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
     var c = function (id) { var el = document.getElementById(id); return el ? !!el.checked : false; };
+    var has = function (id) { return !!document.getElementById(id); };
     var payload = {
         billSize: g('ssb-bill-size') || 'A4',
         billOrientation: g('ssb-bill-orientation') || 'portrait',
         billPrimaryColor: g('ssb-bill-primary') || '#1b2a4a',
         billAccentColor: g('ssb-bill-accent') || '#c8963c',
-        billMinRows: (function () { var v = parseInt(g('ssb-bill-minrows')); return isNaN(v) ? 12 : v; })(),
         billFontFamily: g('ssb-bill-font-family') || 'vazirmatn',
         billBaseFontSize: (function () { var v = parseFloat(g('ssb-bill-base-font')); return isNaN(v) ? '' : v; })(),
         billTitleFontSize: (function () { var v = parseFloat(g('ssb-bill-title-font')); return isNaN(v) ? '' : v; })(),
@@ -28750,12 +28857,20 @@ function ssbSaveBill() {
         billShowBarcode: c('ssb-bill-show-barcode'),
         billShowNote: c('ssb-bill-show-note')
     };
+    // «حداقل سطرها» از فرم حذف شده؛ مقدارِ ذخیره‌شده دست‌نخورده می‌ماند
+    if (has('ssb-bill-minrows')) payload.billMinRows = (function () { var v = parseInt(g('ssb-bill-minrows')); return isNaN(v) ? 12 : v; })();
+    // کلیدهای تازه فقط وقتی نوشته می‌شوند که چک‌باکسِ آن‌ها در فرم باشد
+    if (has('ssb-bill-show-prevbal')) payload.billShowPrevBalance = c('ssb-bill-show-prevbal');
+    if (has('ssb-bill-show-details')) payload.billShowDetails = c('ssb-bill-show-details');
     // تصاویر فقط در صورت آپلود جدید نوشته می‌شوند (وگرنه مقدار قبلی حفظ می‌ماند)
     var b = window.__ssbBill || {};
     if (b.billLogo) payload.billLogo = b.billLogo;
     if (b.billSideImage) payload.billSideImage = b.billSideImage;
     if (b.billBarcode) payload.billBarcode = b.billBarcode;
-    ssbSaveSettings(payload);
+    return payload;
+}
+function ssbSaveBill() {
+    ssbSaveSettings(_ssbBillPayload());
     window.__ssbBill = { billLogo: null, billSideImage: null, billBarcode: null };
     ssbShowMsg('تنظیمات بل ذخیره و اعمال شد ✓');
 }
@@ -29667,7 +29782,7 @@ function ssbShowMsg(msg, isError) {
         position:fixed;bottom:30px;left:50%;transform:translateX(-50%);
         background:${isError ? '#dc2626' : '#059669'};color:#fff;
         padding:10px 22px;border-radius:10px;font-size:0.9rem;
-        z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,0.3);
+        z-index:2147483600;box-shadow:0 4px 16px rgba(0,0,0,0.3);
         animation: fadeInUp 0.3s ease;
     `;
     document.body.appendChild(t);
@@ -29691,6 +29806,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!sidebar || !sidebar.classList.contains('open')) return;
         // اگر کلیک داخل سایدبار بود، نبند
         if (sidebar.contains(e.target)) return;
+        if (e.target && e.target.closest && e.target.closest('.apex-ovl')) return;
         // اگر کلیک روی دکمه باز کردن سایدبار بود، نبند (تا toggle کار کند)
         const toggleBtn = document.getElementById('settings-toggle');
         if (toggleBtn && toggleBtn.contains(e.target)) return;
@@ -44573,4 +44689,426 @@ function _svcItemProfit(it) {
 if (typeof window !== 'undefined') {
     window._svcUnitCost = _svcUnitCost;
     window._svcItemProfit = _svcItemProfit;
+}
+
+// =============================================================================
+//  APEX — صفحهٔ تمام‌صفحهٔ مشترک (.apex-ovl) + «تنظیمات بل» + «مرکز اعلانات»
+//  ---------------------------------------------------------------------------
+//  همه‌چیز «function declaration» است (به‌خاطرِ throwِ سطحِ بالای همین فایل)؛
+//  نصبِ window.__apexOvlBack و کلیدِ Escape در ابتدای فایل با _apexOvlInstall() انجام می‌شود.
+// =============================================================================
+var _absPrevTimer;     // تایمرِ بازسازیِ پیش‌نمایشِ بل
+var _absFitTimer;      // تایمرِ جاانداختنِ پیش‌نمایش پس از تغییرِ اندازهٔ پنجره
+var _absPrevW;         // عرضِ طبیعیِ ورقِ پیش‌نمایش (px)
+var _apexAnnSeq;       // شمارندهٔ درخواستِ اعلانات (پاسخِ کهنه نادیده گرفته می‌شود)
+
+function _apexOvlInstall() {
+    try {
+        window.__apexOvlBack = function () { return _apexOvlBack(); };
+        window.__apexOvlTop = function () { return _apexOvlTop(); };
+        if (window.__apexOvlKeyInstalled) return;
+        window.__apexOvlKeyInstalled = true;
+        document.addEventListener('keydown', function (e) {
+            if ((e.key === 'Escape' || e.key === 'Esc') && _apexOvlTop()) {
+                try { e.preventDefault(); e.stopImmediatePropagation(); } catch (x) {}
+                _apexOvlBack();
+            }
+        }, true);
+    } catch (e) {}
+}
+
+/** بالاترین صفحهٔ تمام‌صفحهٔ باز (یا null) */
+function _apexOvlTop() {
+    try {
+        var l = document.querySelectorAll('.apex-ovl');
+        return l.length ? l[l.length - 1] : null;
+    } catch (e) { return null; }
+}
+
+function _apexOvlLock(on) {
+    try {
+        var de = document.documentElement, b = document.body;
+        if (on) { de.classList.add('apex-ovl-lock'); if (b) b.classList.add('apex-ovl-lock'); }
+        else { de.classList.remove('apex-ovl-lock'); if (b) b.classList.remove('apex-ovl-lock'); }
+    } catch (e) {}
+}
+
+/** ساختِ یک صفحهٔ تمام‌صفحه؛ opts.onClose هنگامِ بسته‌شدن صدا زده می‌شود */
+function _apexOvlOpen(id, innerHtml, opts) {
+    opts = opts || {};
+    var old = document.getElementById(id);
+    if (old) _apexOvlClose(old, true);
+    var el = document.createElement('div');
+    el.className = 'apex-ovl' + (opts.cls ? (' ' + opts.cls) : '');
+    el.id = id;
+    el.setAttribute('dir', 'rtl');
+    el.setAttribute('role', 'dialog');
+    el.innerHTML = innerHtml;
+    el.__apexOnClose = opts.onClose || null;
+    document.body.appendChild(el);
+    _apexOvlLock(true);
+    return el;
+}
+
+function _apexOvlClose(el, silent) {
+    try {
+        if (typeof el === 'string') el = document.getElementById(el);
+        if (!el || !el.parentNode) return;
+        var cb = el.__apexOnClose;
+        el.__apexOnClose = null;
+        el.parentNode.removeChild(el);
+        if (!_apexOvlTop()) _apexOvlLock(false);
+        if (cb && !silent) { try { cb(); } catch (e) {} }
+    } catch (e) {}
+}
+
+/** برگشت: بالاترین صفحهٔ تمام‌صفحه بسته می‌شود؛ true یعنی چیزی بسته شد */
+function _apexOvlBack() {
+    var t = _apexOvlTop();
+    if (!t) return false;
+    _apexOvlClose(t);
+    return true;
+}
+
+/** نوارِ بالای صفحه: برگشت (راست)، عنوان، دکمه‌های عمل (چپ) */
+function _apexOvlBarHtml(title, icon, actionsHtml) {
+    return '<div class="apex-ovl-bar">' +
+        '<button type="button" class="apex-ovl-back" onclick="_apexOvlBack()" title="برگشت" aria-label="برگشت"><i class="fas fa-arrow-right"></i></button>' +
+        '<div class="apex-ovl-title">' + (icon ? ('<i class="fas ' + icon + '"></i> ') : '') + '<span>' + title + '</span></div>' +
+        '<div class="apex-ovl-actions">' + (actionsHtml || '') + '</div>' +
+    '</div>';
+}
+
+// ─────────────────────────────── تنظیمات بل ───────────────────────────────
+function apexBillSettingsOpen() {
+    try {
+        // اگر از سایدبار باز شد، سایدبار باز می‌ماند و گروهِ «تنظیمات» را نشان می‌دهد
+        try {
+            var sb = document.getElementById('settings-sidebar');
+            if (sb && sb.classList.contains('open') && window.__ssbCurrentKey !== 'settings') ssbOpenSub('settings');
+        } catch (e) {}
+        var save = '<button type="button" class="apex-ovl-save" onclick="apexBillSettingsSave()"><i class="fas fa-check"></i> <span>ثبت تغییرات</span></button>';
+        var html = _apexOvlBarHtml('تنظیمات بل', 'fa-file-invoice-dollar', save) +
+            '<div class="abs-body">' +
+                '<div class="abs-tabs">' + _absTabsHtml() + '</div>' +
+                '<div class="abs-prev">' +
+                    '<div class="abs-prev-h"><i class="fas fa-eye"></i> پیش‌نمایش بل نمونه</div>' +
+                    '<div class="abs-prev-wrap" id="abs-prev-wrap">' +
+                        '<div class="abs-prev-holder" id="abs-prev-holder"><iframe id="abs-prev-frame" title="پیش‌نمایش بل" scrolling="no" tabindex="-1"></iframe></div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        var el = _apexOvlOpen('apex-bill-ovl', html, {
+            cls: 'abs-ovl',
+            onClose: function () {
+                // بستن بدونِ ثبت ⇒ تغییرات دور ریخته می‌شوند (تصاویرِ تازه هم)
+                window.__ssbBill = { billLogo: null, billSideImage: null, billBarcode: null };
+                try { clearTimeout(_absPrevTimer); clearTimeout(_absFitTimer); } catch (e) {}
+                try { window.removeEventListener('resize', _absOnResize); } catch (e) {}
+            }
+        });
+        ssbPopulateForm('invoice');
+        el.addEventListener('input', _absSchedulePreview);
+        el.addEventListener('change', _absSchedulePreview);
+        window.addEventListener('resize', _absOnResize);
+        _absRenderPreview();
+    } catch (e) { console.error('apexBillSettingsOpen error:', e); }
+}
+
+function apexBillSettingsSave() {
+    try { ssbSaveBill(); } catch (e) { console.error('apexBillSettingsSave error:', e); ssbShowMsg('خطا در ثبت تنظیمات بل', true); return; }
+    _absRenderPreview();
+}
+
+/** آکاردئون: باز کردنِ یک بخش، بقیه بسته می‌شوند؛ کلیک روی بخشِ باز آن را می‌بندد */
+function _absToggleSec(btn) {
+    try {
+        var sec = btn.closest('.abs-sec');
+        if (!sec) return;
+        var wasOpen = sec.classList.contains('open');
+        var all = sec.parentNode.querySelectorAll('.abs-sec');
+        for (var i = 0; i < all.length; i++) all[i].classList.remove('open');
+        if (!wasOpen) sec.classList.add('open');
+    } catch (e) {}
+}
+
+function _absTabsHtml() {
+    var sec = function (id, icon, title, body, open) {
+        return '<div class="abs-sec' + (open ? ' open' : '') + '" data-sec="' + id + '">' +
+            '<button type="button" class="abs-sec-h" onclick="_absToggleSec(this)">' +
+                '<span class="abs-sec-ico"><i class="fas ' + icon + '"></i></span>' +
+                '<span class="abs-sec-t">' + title + '</span>' +
+                '<i class="fas fa-chevron-down abs-sec-arr"></i>' +
+            '</button>' +
+            '<div class="abs-sec-b">' + body + '</div>' +
+        '</div>';
+    };
+    var ck = function (id, label) {
+        return '<label class="abs-ck"><input type="checkbox" id="' + id + '"><span>' + label + '</span></label>';
+    };
+    var imgRow = function (label, prevId, fileId, key, w, h) {
+        return '<label>' + label + '</label>' +
+            '<div class="abs-img-row">' +
+                '<img id="' + prevId + '" src="" alt="" style="width:' + w + 'px;height:' + h + 'px;display:none;">' +
+                '<input type="file" id="' + fileId + '" accept="image/*" onchange="ssbBillImgPreview(event,\'' + key + '\',\'' + prevId + '\')">' +
+            '</div>';
+    };
+    return '' +
+    sec('store', 'fa-gas-pump', 'مشخصات پمپ استیشن',
+        '<label>نام پمپ استیشن (روی بل)</label><input type="text" id="ssb-bill-store-name" placeholder="نام پمپ استیشن">' +
+        '<label>نام انگلیسی (اختیاری)</label><input type="text" id="ssb-bill-store-name-en" placeholder="Station Name (English)">' +
+        '<label>شعار / توضیح پمپ استیشن</label><input type="text" id="ssb-bill-slogan" placeholder="عرضه کننده انواع تیل‌های با کیفیت">', true) +
+    sec('size', 'fa-ruler-combined', 'اندازه و رنگ',
+        '<label>اندازه ورق</label>' +
+        '<select id="ssb-bill-size"><option value="A4">A4 (بزرگ)</option><option value="A5">A5 (متوسط)</option><option value="80mm">۸۰ میلی‌متر (حرارتی)</option><option value="58mm">۵۸ میلی‌متر (حرارتی کوچک)</option></select>' +
+        '<label>جهت صفحه (برای A4/A5)</label>' +
+        '<select id="ssb-bill-orientation"><option value="portrait">عمودی (Portrait)</option><option value="landscape">افقی (Landscape)</option></select>' +
+        '<div class="abs-2col">' +
+            '<div><label>رنگ اصلی</label><input type="color" id="ssb-bill-primary" value="#1b2a4a"></div>' +
+            '<div><label>رنگ تأکید (طلایی)</label><input type="color" id="ssb-bill-accent" value="#c8963c"></div>' +
+        '</div>') +
+    sec('font', 'fa-font', 'فونت',
+        '<label>نوع فونت</label>' +
+        '<select id="ssb-bill-font-family"><option value="vazirmatn">استعداد (پیش‌فرض)</option><option value="tahoma">Tahoma</option><option value="nazanin">B Nazanin / نازنین</option><option value="arial">Arial</option><option value="times">Times New Roman</option><option value="courier">Courier New</option></select>' +
+        '<div class="abs-2col">' +
+            '<div><label>اندازه متن بدنه (px)</label><input type="number" id="ssb-bill-base-font" min="7" max="24" placeholder="12"></div>' +
+            '<div><label>اندازه نام پمپ استیشن (px)</label><input type="number" id="ssb-bill-title-font" min="10" max="48" placeholder="26"></div>' +
+        '</div>' +
+        '<p class="abs-hint">فونت استعداد از قبل روی برنامه نصب است. سایر فونت‌ها در صورت نصب بودن روی سیستم اعمال می‌شوند.</p>') +
+    sec('show', 'fa-eye', 'نمایش',
+        ck('ssb-bill-show-prevbal', 'نمایش بیلانس قبلی مشتری / فروشنده') +
+        ck('ssb-bill-show-details', 'نمایش ستون جزئیات') +
+        ck('ssb-bill-show-logo', 'نمایش لوگوی پمپ استیشن') +
+        ck('ssb-bill-show-side', 'نمایش تصویر کناری (سمت چپ بل)') +
+        ck('ssb-bill-show-ftitle', 'نمایش عنوان تشکر') +
+        ck('ssb-bill-show-phone', 'نمایش شماره تماس') +
+        ck('ssb-bill-show-address', 'نمایش آدرس') +
+        ck('ssb-bill-show-barcode', 'نمایش بارکد / QR') +
+        ck('ssb-bill-show-note', 'نمایش یادداشت اعتبار')) +
+    sec('footer', 'fa-shoe-prints', 'پانویس',
+        '<label>عنوان تشکر</label><input type="text" id="ssb-bill-ftitle" placeholder="از اعتماد شما سپاسگزاریم">' +
+        '<label>زیرعنوان</label><input type="text" id="ssb-bill-fsub" placeholder="کیفیت بهتر، قیمت مناسب، خدمت صادقانه">' +
+        '<label>شماره تماس</label><input type="text" id="ssb-bill-phone" placeholder="۰۷۹۹۷۳۰۰۱۱">' +
+        '<label>آدرس</label><input type="text" id="ssb-bill-address" placeholder="آدرس پمپ استیشن">' +
+        '<label>یادداشت اعتبار</label><input type="text" id="ssb-bill-note" placeholder="این بل بدون مهر و امضا مدار اعتبار نمی‌باشد.">') +
+    sec('images', 'fa-image', 'لوگو، تصویر و بارکد',
+        imgRow('لوگوی پمپ استیشن', 'ssb-bill-logo-preview', 'ssb-bill-logo-file', 'billLogo', 56, 56) +
+        imgRow('تصویر کناری (سمت چپ بل)', 'ssb-bill-side-preview', 'ssb-bill-side-file', 'billSideImage', 70, 48) +
+        imgRow('بارکد / QR', 'ssb-bill-barcode-preview', 'ssb-bill-barcode-file', 'billBarcode', 52, 52));
+}
+
+function _absSchedulePreview() {
+    try { clearTimeout(_absPrevTimer); } catch (e) {}
+    _absPrevTimer = setTimeout(_absRenderPreview, 220);
+}
+
+function _absOnResize() {
+    try { clearTimeout(_absFitTimer); } catch (e) {}
+    _absFitTimer = setTimeout(_absFitPreview, 120);
+}
+
+/** بلِ نمونه: BL-0001، «مشتری نمونه»، امروز، سه قلم (یکی با جزئیات)، پرداختِ قسمی، واحد پولِ اصلی */
+function _absSampleTx() {
+    var cur = 'AFN';
+    try { if (typeof _baseCur === 'function') cur = _baseCur() || 'AFN'; } catch (e) {}
+    var date = '';
+    try { date = (db && typeof db.getCurrentDate === 'function') ? db.getCurrentDate() : ''; } catch (e) { date = ''; }
+    if (!date) { try { date = new Date().toLocaleDateString('fa-IR'); } catch (e) { date = ''; } }
+    var items = [
+        { productName: 'دیزل', fuelType: 'دیزل', enteredUnit: 'لیتر', enteredQty: 500, enteredPrice: 62, quantity: 500, unit: 'لیتر', price: 62, total: 31000, details: 'از تانک شماره ۱' },
+        { productName: 'پطرول', fuelType: 'پطرول', enteredUnit: 'لیتر', enteredQty: 300, enteredPrice: 68, quantity: 300, unit: 'لیتر', price: 68, total: 20400 },
+        { productName: 'گاز مایع', fuelType: 'گاز مایع', enteredUnit: 'کیلوگرام', enteredQty: 40, enteredPrice: 75, quantity: 40, unit: 'کیلوگرام', price: 75, total: 3000 }
+    ];
+    return { id: '__apex_sample__', type: 'فروش', billNumber: 'BL-0001', date: date, customerName: 'مشتری نمونه',
+             currency: cur, totalAmount: 54400, paid: 30000, remaining: 24400, items: items };
+}
+
+/** عرضِ طبیعیِ ورق (px در ۹۶dpi) همراه با حاشیهٔ بدنهٔ بل */
+function _absPaperWidthPx(S) {
+    var mm = 3.7795;
+    var size = S.billSize || 'A4';
+    var land = (S.billOrientation === 'landscape');
+    if (size === '58mm') return Math.round(58 * mm);
+    if (size === '80mm') return Math.round(80 * mm);
+    var w = (size === 'A5') ? (land ? 210 : 148) : (land ? 297 : 210);
+    return Math.round((w + 12) * mm);
+}
+
+function _absRenderPreview() {
+    var fr = document.getElementById('abs-prev-frame');
+    if (!fr) return;
+    try {
+        var saved = (db && db.getSettings) ? (db.getSettings() || {}) : {};
+        var S = Object.assign({}, saved, _ssbBillPayload());
+        var ps = {};
+        if (S.billShowPrevBalance === true) ps.samplePrevBalance = 12000;   // بیلانسِ قبلیِ نمونه
+        var html = generateProfessionalInvoiceHTML(_absSampleTx(), S, ps);
+        var base = '';
+        try { base = (typeof _apexAssetBase === 'function') ? _apexAssetBase() : ''; } catch (e) { base = ''; }
+        var head = (base ? ('<base href="' + base + '">') : '') +
+            '<link rel="stylesheet" href="assets/css/all.min.css">' +
+            '<link rel="stylesheet" href="assets/fonts/estedad.css"><link rel="stylesheet" href="assets/fonts/vazirmatn.css">' +
+            '<style>html,body{overflow:hidden !important;}</style>';
+        if (/<head[^>]*>/i.test(html)) html = html.replace(/<head[^>]*>/i, function (m) { return m + head; });
+        else html = head + html;
+        html = _apexDigitHtml(html);    // استایلِ ارقام همیشه آخرینِ <head>
+        _absPrevW = _absPaperWidthPx(S);
+        fr.style.width = _absPrevW + 'px';
+        var d = fr.contentDocument || (fr.contentWindow && fr.contentWindow.document);
+        if (!d) return;
+        d.open(); d.write(html); d.close();
+        _absFitPreview();
+        setTimeout(_absFitPreview, 60);
+        setTimeout(_absFitPreview, 400);
+        try { if (d.fonts && d.fonts.ready) d.fonts.ready.then(function () { _absFitPreview(); }); } catch (e) {}
+        try {
+            var imgs = d.images || [];
+            for (var i = 0; i < imgs.length; i++) { if (!imgs[i].complete) imgs[i].addEventListener('load', _absFitPreview); }
+        } catch (e) {}
+    } catch (e) { console.error('bill preview error:', e); }
+}
+
+/** کوچک‌کردنِ پیش‌نمایش تا در ستونِ خودش جا شود (مبدأ: بالا-راست) */
+function _absFitPreview() {
+    try {
+        var fr = document.getElementById('abs-prev-frame');
+        var wrap = document.getElementById('abs-prev-wrap');
+        var holder = document.getElementById('abs-prev-holder');
+        if (!fr || !wrap || !holder) return;
+        var d = fr.contentDocument;
+        if (!d || !d.body) return;
+        var W = _absPrevW || 794;
+        fr.style.width = W + 'px';
+        fr.style.height = '10px';
+        var h = Math.max(d.documentElement ? d.documentElement.scrollHeight : 0, d.body.scrollHeight, 50);
+        fr.style.height = h + 'px';
+        var avail = Math.max(120, wrap.clientWidth - 16);
+        var s = Math.min(1, avail / W);
+        fr.style.transformOrigin = 'top right';
+        fr.style.transform = 'scale(' + s + ')';
+        holder.style.width = Math.ceil(W * s) + 'px';
+        holder.style.height = Math.ceil(h * s) + 'px';
+    } catch (e) {}
+}
+
+// ─────────────────────────────── مرکز اعلانات ───────────────────────────────
+function apexAnnOpen() {
+    try {
+        var sb = document.getElementById('settings-sidebar');
+        if (sb && sb.classList.contains('open')) closeSidebar();
+    } catch (e) {}
+    var refresh = '<button type="button" class="apex-ovl-icon" onclick="apexAnnLoad()" title="تازه‌سازی" aria-label="تازه‌سازی"><i class="fas fa-rotate-right"></i></button>';
+    var html = _apexOvlBarHtml('مرکز اعلانات', 'fa-bullhorn', refresh) +
+        '<div class="aan-body"><div class="aan-list" id="aan-list"></div></div>';
+    _apexOvlOpen('apex-ann-ovl', html, {
+        cls: 'aan-ovl',
+        onClose: function () {
+            // برگشت ⇒ داشبورد
+            try {
+                var a = document.querySelector('.section.active');
+                if (a && a.id !== 'dashboard' && typeof showSection === 'function') showSection('dashboard');
+            } catch (e) {}
+        }
+    });
+    apexAnnLoad();
+}
+
+function apexAnnLoad() {
+    var el = document.getElementById('aan-list');
+    if (!el) return;
+    _apexAnnSeq = (_apexAnnSeq || 0) + 1;
+    var seq = _apexAnnSeq;
+    el.innerHTML = '<div class="aan-state"><i class="fas fa-circle-notch fa-spin"></i><div>در حال دریافت اعلانات…</div></div>';
+    var lastSeen = '';
+    try { lastSeen = localStorage.getItem('jouya_ann_last_seen') || ''; } catch (e) { lastSeen = ''; }
+    _jouyaAnnGet('announcements?select=title,body,created_at,is_active&is_active=eq.true&order=created_at.desc&limit=50')
+        .catch(function () {
+            // اگر ستونِ is_active وجود نداشت، بدونِ فیلتر هم تلاش می‌کنیم
+            return _jouyaAnnGet('announcements?select=*&order=created_at.desc&limit=50');
+        })
+        .then(function (rows) {
+            if (seq !== _apexAnnSeq || !document.getElementById('aan-list')) return;
+            jouyaAnnMarkSeen(rows);
+            if (!Array.isArray(rows) || !rows.length) {
+                el.innerHTML = '<div class="aan-state"><i class="fas fa-bell-slash"></i><div>اعلان جدیدی وجود ندارد.</div></div>';
+                return;
+            }
+            el.innerHTML = _apexAnnListHtml(rows, lastSeen);
+        })
+        .catch(function (err) {
+            if (seq !== _apexAnnSeq || !document.getElementById('aan-list')) return;
+            el.innerHTML = '<div class="aan-state aan-err"><i class="fas fa-triangle-exclamation"></i>' +
+                '<div>دریافت اعلانات ممکن نشد.</div>' +
+                '<div class="aan-err-msg">' + _jouyaAnnEsc((err && err.message) || '') + '</div>' +
+                '<button type="button" class="aan-retry" onclick="apexAnnLoad()"><i class="fas fa-rotate-right"></i> تلاش دوباره</button></div>';
+        });
+}
+
+function _apexAfgMonth(m) {
+    return ['حمل', 'ثور', 'جوزا', 'سرطان', 'اسد', 'سنبله', 'میزان', 'عقرب', 'قوس', 'جدی', 'دلو', 'حوت'][m - 1] || '';
+}
+
+/** «روز ماه سال» شمسی با نام‌های ماهِ افغانی (ارقام با فونتِ برنامه نمایش داده می‌شوند) */
+function _apexJalaliText(d) {
+    try {
+        if (typeof gregorianToJalali === 'function') {
+            var j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+            return j[2] + ' ' + _apexAfgMonth(j[1]) + ' ' + j[0];
+        }
+    } catch (e) {}
+    try { return d.toLocaleDateString('fa-IR'); } catch (e) { return ''; }
+}
+
+function _apexAnnDayKey(d) { return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+
+function _apexAnnDayLabel(d) {
+    var now = new Date();
+    var y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (_apexAnnDayKey(d) === _apexAnnDayKey(now)) return 'امروز';
+    if (_apexAnnDayKey(d) === _apexAnnDayKey(y)) return 'دیروز';
+    var wd = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'][d.getDay()];
+    return wd + '، ' + _apexJalaliText(d);
+}
+
+function _apexAnnListHtml(rows, lastSeen) {
+    // «جدید» = تازه‌تر از آخرین اعلانی که کاربر دیده بود
+    var seenIdx = -1, seenTime = NaN;
+    if (lastSeen) {
+        for (var i = 0; i < rows.length; i++) { if (_jouyaAnnMarker(rows[i]) === lastSeen) { seenIdx = i; break; } }
+        seenTime = new Date(lastSeen).getTime();
+    }
+    var isNew = function (r, idx) {
+        if (!lastSeen) return true;
+        if (seenIdx >= 0) return idx < seenIdx;
+        var t = new Date(r && r.created_at).getTime();
+        return (!isNaN(t) && !isNaN(seenTime)) ? (t > seenTime) : false;
+    };
+    var out = '', lastKey = null;
+    rows.forEach(function (a, idx) {
+        var d = a && a.created_at ? new Date(a.created_at) : null;
+        if (d && isNaN(d.getTime())) d = null;
+        var key = d ? _apexAnnDayKey(d) : '—';
+        if (key !== lastKey) {
+            out += '<div class="aan-day">' + (d ? _apexAnnDayLabel(d) : 'بدون تاریخ') + '</div>';
+            lastKey = key;
+        }
+        var fresh = isNew(a, idx);
+        var title = _jouyaAnnEsc((a && a.title) || '');
+        var body = _jouyaAnnEsc((a && (a.body || a.message)) || '').replace(/\r?\n/g, '<br>');
+        var when = '';
+        if (d) {
+            var hh = d.getHours(), mm = d.getMinutes();
+            when = _apexJalaliText(d) + ' — ' + (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+        }
+        out += '<div class="aan-card' + (fresh ? ' is-new' : '') + '">' +
+            '<span class="aan-ico"><i class="fas fa-bullhorn"></i></span>' +
+            '<div class="aan-main">' +
+                '<div class="aan-top">' + (title ? ('<div class="aan-title">' + title + '</div>') : '<div class="aan-title"></div>') +
+                    (fresh ? '<span class="aan-badge">جدید</span>' : '') + '</div>' +
+                (body ? ('<div class="aan-text">' + body + '</div>') : '') +
+                (when ? ('<div class="aan-when"><i class="far fa-clock"></i> ' + when + '</div>') : '') +
+            '</div>' +
+        '</div>';
+    });
+    return out;
 }

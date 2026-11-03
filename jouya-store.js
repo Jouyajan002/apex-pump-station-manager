@@ -345,6 +345,22 @@
         },
         isBig: function (k) { return Object.prototype.hasOwnProperty.call(mem, String(k)); },
         pending: function () { return pending; },
+        // پاک‌کردنِ مخزن‌های جانبیِ IndexedDB (نسخه‌های «پیش از انتقال» در bak) — فقط برای
+        // پایانِ نسخهٔ آزمایشی؛ مخزنِ اصلیِ kv دست نمی‌خورد (حذفِ کلیدها خودش آن را پاک می‌کند).
+        // تصاویرِ اصلی در این برنامه در کلیدهای jouya_img_original_* ِ localStorage‌اند، نه مخزنِ جدا.
+        wipeExtras: function () {
+            return new Promise(function (res) {
+                if (!db) { res(); return; }
+                try {
+                    var names = [BAK].filter(function (n) { return db.objectStoreNames.contains(n); });
+                    if (!names.length) { res(); return; }
+                    var tx = db.transaction(names, 'readwrite');
+                    names.forEach(function (n) { tx.objectStore(n).clear(); });
+                    tx.oncomplete = function () { res(); };
+                    tx.onerror = tx.onabort = function () { res(); };
+                } catch (e) { res(); }
+            });
+        },
         report: function () {
             var rows = [], k, total = 0;
             for (k in mem) { rows.push({ key: k, chars: mem[k].length }); total += mem[k].length; }
