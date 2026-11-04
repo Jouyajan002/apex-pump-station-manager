@@ -9,6 +9,8 @@ try { __hbInstallStorageGuard(); } catch (e) {}
 try { _apexDigitApply(); } catch (e) {}   // شکلِ ارقام (فارسی/انگلیسی) — پیش از نخستین رندر
 try { __hbInstallRenderCoalescer(); } catch (e) {}
 try { _apexOvlInstall(); } catch (e) {}   // اورلیِ تمام‌صفحه: window.__apexOvlBack + Escape
+try { _billReceiveDateInstall(); } catch (e) {}   // فیلد «تاریخ» فورمِ دریافتی/پرداختیِ بل
+try { _ndUpdSidebarInstall(); } catch (e) {}      // گزینهٔ «بروزرسانی» در سایدبارِ نسخه‌های نصبی (مستقل از رندرِ داشبورد)
 
 /* ==========================================================================
    مدیریت تب‌های امور مالی - نسخه نهایی
@@ -4156,6 +4158,9 @@ function saveSale() {
             cashboxId: _saleCashboxId,
             status: remaining > 0 ? 'باقی‌مانده' : 'تسویه‌شده'
         };
+        // تاریخِ دریافتی (فورمِ ویرایشِ دریافتی) — فقط اگر باز/داده شده باشد؛ وگرنه مقدارِ قبلی می‌ماند
+        var _saleCashDate = _billReceiveDateTake(false);
+        if (_saleCashDate) transaction.cashDate = _saleCashDate;
         
         const result = db.saveTransaction(transaction);
         if (result.success !== false) {
@@ -4184,6 +4189,9 @@ function saveSale() {
             status: remaining > 0 ? 'باقی‌مانده' : 'تسویه‌شده',
             createdAt: new Date().toISOString()
         };
+        // تاریخِ دریافتی (فورمِ ویرایشِ دریافتی) — فقط اگر باز/داده شده باشد
+        var _saleCashDateN = _billReceiveDateTake(false);
+        if (_saleCashDateN) transaction.cashDate = _saleCashDateN;
 
         const result = db.saveTransaction(transaction);
         if (result.success !== false) {
@@ -5327,6 +5335,9 @@ function savePurchase() {
         expiryDate: _purchaseExpiryDate,
         status: remaining > 0 ? 'باقی‌مانده' : 'تسویه‌شده'
     };
+    // تاریخِ پرداختی (فورمِ ویرایشِ پرداختی) — فقط اگر باز/داده شده باشد؛ در ویرایش وگرنه مقدارِ قبلی می‌ماند
+    var _purCashDate = _billReceiveDateTake(true);
+    if (_purCashDate) transaction.cashDate = _purCashDate;
     
     // ====== به‌روزرسانی تاریخ انقضاء ذخایر از فهرست ذخایر ======
     // اگر در فرم خرید فوری تاریخ انقضاء جدید درج شده باشد، تاریخ انقضاء همان ذخایر
@@ -12213,6 +12224,10 @@ function generateProfessionalInvoiceHTML(transaction, settings, printSettings) {
             '.items .c-details { width: ' + (isThermal ? '28%' : '25%') + '; }';
     }
 
+    // ---- حاشیه‌های ورق از «تنظیمات بل» (اگر هر چهار خالی باشد چیزی اضافه نمی‌شود) ----
+    //  استندرد: A4/A5 = 12mm (‎@page 6mm + فاصلهٔ داخلیِ بدنه 6mm) ، حرارتی = 2mm
+    css += _apexBillMarginCss(S, pageWidth, isThermal ? 2 : 12, '.bill');
+
     // ---- سطرهای مجموعِ پایینِ بل (شرطی) ----
     //  تخفیف یا ضایعات > ۰: جمع مبلغ ← مجموع ضایعات ← تخفیف ← مجموع ← (بیلانس قبلی ← مجموع کل) ← پرداختی ← باقیمانده
     //  بدونِ تخفیف و ضایعات: مجموع ← (بیلانس قبلی ← مجموع کل) ← پرداختی ← باقیمانده
@@ -13932,7 +13947,8 @@ function __openPrintPreview(rawHtml, opts) {
     if (__jouyaUseInAppPreview()) {
         try {
             return __ppOpenMobileOverlay(rawHtml, assetsHead, css, {
-                title: title, pdfName: pdfName, shareText: shareText
+                title: title, pdfName: pdfName, shareText: shareText,
+                billRegen: (typeof opts.billRegen === 'function') ? opts.billRegen : null
             });
         } catch (e) {
             try { console.warn('[jouya-preview] overlay failed, fallback to window:', e && e.message); } catch (_) {}
@@ -14103,6 +14119,9 @@ function __ppOpenMobileOverlay(rawHtml, assetsHead, extraCss, meta) {
         '<button type="button" class="jouya-pp-btn jouya-pp-back" title="برگشت"><i class="fas fa-arrow-right"></i><span>برگشت</span></button>' +
         '<div class="jouya-pp-title">' + esc(title) + '</div>' +
         '<div class="jouya-pp-actions">' +
+            // «تنظیمات بل» فقط برای بل‌ها و رسیدها (تابعِ چاپشان billRegen می‌دهد)؛ گزارش‌ها ندارند
+            ((typeof meta.billRegen === 'function')
+                ? '<button type="button" class="jouya-pp-btn jouya-pp-billset" title="تنظیمات بل"><i class="fas fa-cog"></i></button>' : '') +
             '<button type="button" class="jouya-pp-btn jouya-pp-print" title="چاپ"><i class="fas fa-print"></i></button>' +
             '<button type="button" class="jouya-pp-btn jouya-pp-share" title="اشتراک‌گذاری"><i class="fas fa-share-alt"></i></button>' +
         '</div>';
@@ -14130,6 +14149,8 @@ function __ppOpenMobileOverlay(rawHtml, assetsHead, extraCss, meta) {
         fd.open(); fd.write(doc); fd.close();
         // نشانهٔ «پیش‌نمایشِ زنده» — حاشیهٔ دورِ محتوا فقط همین‌جا اعمال می‌شود، نه در PDF/چاپ
         try { fd.documentElement.className = (fd.documentElement.className || '') + ' jouya-pp-live'; } catch (_) {}
+        // کلیک/لمس روی خودِ بل (داخلِ iframe) به سندِ اصلی نمی‌رسد؛ منوی اشتراک را همین‌جا می‌بندیم
+        try { fd.addEventListener('pointerdown', function () { try { closeShareMenu(); } catch (_) {} }, true); } catch (_) {}
     } catch (e) {
         try { frame.srcdoc = doc; } catch (_) {}
     }
@@ -14347,6 +14368,24 @@ function __ppOpenMobileOverlay(rawHtml, assetsHead, extraCss, meta) {
 
     try { bar.querySelector('.jouya-pp-back').addEventListener('click', close); } catch (e) {}
     try { bar.querySelector('.jouya-pp-print').addEventListener('click', doPrint); } catch (e) {}
+    // «تنظیمات بل»: همان صفحهٔ تمام‌صفحهٔ تنظیمات روی پیش‌نمایش باز می‌شود. با «ثبت تغییرات»
+    // این پیش‌نمایش کامل بسته (close ⇒ شنونده‌ها پاک) و همان تابعِ چاپ با همان ورودی‌ها
+    // دوباره اجرا می‌شود. «برگشت» بدونِ ثبت فقط تنظیمات را می‌بندد و پیش‌نمایش دست‌نخورده می‌ماند.
+    try {
+        var _bsBtn = bar.querySelector('.jouya-pp-billset');
+        if (_bsBtn && typeof meta.billRegen === 'function') {
+            _bsBtn.addEventListener('click', function () {
+                closeShareMenu();
+                if (typeof apexBillSettingsOpen !== 'function') return;
+                apexBillSettingsOpen({
+                    onSaved: function () {
+                        close();
+                        try { meta.billRegen(); } catch (e2) { try { console.warn('[jouya-preview] billRegen error:', e2 && e2.message); } catch (_) {} }
+                    }
+                });
+            });
+        }
+    } catch (e) {}
     try { bar.querySelector('.jouya-pp-share').addEventListener('click', doShareMenu); } catch (e) {}
 
     // برای دکمهٔ برگشتِ سخت‌افزاریِ موبایل (mobile-fit.js اول این را می‌بندد)
@@ -14374,7 +14413,8 @@ function printInvoice(transactionId) {
     
     const html = generateProfessionalInvoiceHTML(transaction, settings, printSettings);
     
-    __openPrintPreview(html, { title: 'بل فروش ' + (transaction.billNumber || ''), text: 'بل فروش ' + (transaction.billNumber || ''), assets: true, topBar: true, billShare: true, pdfName: 'بل فروش ' + (transaction.billNumber || '') });
+    __openPrintPreview(html, { title: 'بل فروش ' + (transaction.billNumber || ''), text: 'بل فروش ' + (transaction.billNumber || ''), assets: true, topBar: true, billShare: true, pdfName: 'بل فروش ' + (transaction.billNumber || ''),
+        billRegen: function () { printInvoice(transactionId); } });
 }
 
 // ==================== دکمه تست چاپ در تنظیمات چاپ ====================
@@ -20506,7 +20546,8 @@ function printSalesBill(transactionId = null, transactionData = null) {
             printLogo, printBarcode, printCurrencyConversion: printCurrency
         });
 
-        const printWindow = __openPrintPreview(invoiceHTML, { title: 'بل فروش ' + (transaction.billNumber || ''), text: 'بل فروش ' + (transaction.billNumber || ''), assets: true, topBar: true, billShare: true, pdfName: 'بل فروش ' + (transaction.billNumber || '') });
+        const printWindow = __openPrintPreview(invoiceHTML, { title: 'بل فروش ' + (transaction.billNumber || ''), text: 'بل فروش ' + (transaction.billNumber || ''), assets: true, topBar: true, billShare: true, pdfName: 'بل فروش ' + (transaction.billNumber || ''),
+            billRegen: function () { printSalesBill(transactionId, transactionData); } });
         if (!printWindow) {
             return;
         }
@@ -24896,7 +24937,8 @@ function printSaleReturnBill(tx) {
         var title = (isSale ? 'بل برگشت از فروش ' : 'بل برگشت از خرید ') + (tx.billNumber || '');
         var invoiceHTML = generateProfessionalInvoiceHTML(tx, settings, printSettings);
         if (typeof __openPrintPreview === 'function') {
-            __openPrintPreview(invoiceHTML, { title: title, text: title, assets: true, topBar: true, billShare: true, pdfName: title });
+            __openPrintPreview(invoiceHTML, { title: title, text: title, assets: true, topBar: true, billShare: true, pdfName: title,
+                billRegen: function () { printSaleReturnBill(tx); } });
         } else {
             var w = window.open('', '_blank', 'width=950,height=900');
             if (w) { w.document.open(); w.document.write(invoiceHTML); w.document.close(); }
@@ -27722,6 +27764,7 @@ function ssbResetList() {
     if (backBtn)   backBtn.classList.remove('visible');
     if (title)     title.innerHTML = '<i class="fas fa-cog"></i> تنظیمات';
     window.__ssbCurrentKey = null;
+    try { ndUpdSyncSidebarItem(); } catch (e) {}
 }
 
 /** باز کردن یک زیربخش */
@@ -28453,6 +28496,7 @@ function ssbPopulateForm(key) {
             // مقادیر متنی / اندازه / رنگ
             _sv('ssb-bill-size', settings.billSize || 'A4');
             _sv('ssb-bill-orientation', settings.billOrientation || 'portrait');
+            try { _apexMarginFill('ssb-bill-mg', settings); } catch (e) {}   // حاشیه‌های ورق (نبودِ مقدار = خالی)
             _sv('ssb-bill-primary', settings.billPrimaryColor || '#1b2a4a');
             _sv('ssb-bill-accent', settings.billAccentColor || '#c8963c');
             _sv('ssb-bill-minrows', (settings.billMinRows != null ? settings.billMinRows : 12));   // فیلد حذف شده؛ اگر نباشد بی‌اثر است
@@ -28862,6 +28906,8 @@ function _ssbBillPayload() {
     // کلیدهای تازه فقط وقتی نوشته می‌شوند که چک‌باکسِ آن‌ها در فرم باشد
     if (has('ssb-bill-show-prevbal')) payload.billShowPrevBalance = c('ssb-bill-show-prevbal');
     if (has('ssb-bill-show-details')) payload.billShowDetails = c('ssb-bill-show-details');
+    // حاشیه‌های ورق: فقط وقتی فیلدها در صفحه‌اند (عدد میلی‌متر یا "" = استندرد)
+    if (has('ssb-bill-mg-t')) { try { Object.assign(payload, _apexMarginRead('ssb-bill-mg') || {}); } catch (e) {} }
     // تصاویر فقط در صورت آپلود جدید نوشته می‌شوند (وگرنه مقدار قبلی حفظ می‌ماند)
     var b = window.__ssbBill || {};
     if (b.billLogo) payload.billLogo = b.billLogo;
@@ -30426,7 +30472,8 @@ function printReceiptSlip(transactionId) {
     const settings = db.getSettings ? db.getSettings() : {};
     const html = _generateReceiptSlipHTML(tx, settings);
     const _slipTitle = (tx.type === 'دریافت' ? 'رسید دریافتی' : 'رسید پرداختی') + (tx.billNumber ? ' ' + tx.billNumber : '');
-    __openPrintPreview(html, { title: _slipTitle, text: _slipTitle });
+    __openPrintPreview(html, { title: _slipTitle, text: _slipTitle,
+        billRegen: function () { printReceiptSlip(transactionId); } });
 }
 
 function _generateReceiptSlipHTML(tx, settings) {
@@ -30543,7 +30590,7 @@ body { font-family: Estedad, 'Vazirmatn', Tahoma, Arial, sans-serif; font-size: 
 
 /* ---- فوتر ---- */
 .slp-foot { background: ${navy}; color: #fff; text-align: center; padding: 12px; font-size: 13px; font-weight: 800; }
-</style>
+${_apexBillMarginCss(S, '210mm', 16, '.slp-wrap')}</style>
 </head>
 <body>
 <div class="slp-wrap">
@@ -35815,7 +35862,8 @@ function printPurchaseBill(purchaseId, purchaseData) {
                 paperSize: paperSize, orientation: orientation, margin: margin,
                 fontSize: fontSize, printLogo: printLogo, printBarcode: false, printCurrencyConversion: false
             });
-            var pw = __openPrintPreview(invoiceHTML, { title: 'بل خرید ' + (purchaseTx.billNumber || ''), text: 'بل خرید ' + (purchaseTx.billNumber || ''), assets: true, topBar: true, billShare: true, pdfName: 'بل خرید ' + (purchaseTx.billNumber || '') });
+            var pw = __openPrintPreview(invoiceHTML, { title: 'بل خرید ' + (purchaseTx.billNumber || ''), text: 'بل خرید ' + (purchaseTx.billNumber || ''), assets: true, topBar: true, billShare: true, pdfName: 'بل خرید ' + (purchaseTx.billNumber || ''),
+                billRegen: function () { printPurchaseBill(purchaseId, purchaseData); } });
             if (!pw) { return; }
         } else {
             showMessage && showMessage('اطلاع', 'تابع چاپ در دسترس نیست.');
@@ -38802,8 +38850,109 @@ function billToggleReceiveEdit(isPurchase) {
         var src = document.getElementById(srcId);
         var amt = document.getElementById(which + '-receive-edit-amount');
         if (src && amt && src.value) amt.value = src.value;
+        // فیلد «تاریخ»: پیش‌فرض امروز (یا تاریخِ سندِ مرتبطِ همین بل هنگامِ ویرایش)؛ قابل ویرایش
+        try { _billReceiveDateDefault(isPurchase); } catch (e) {}
         if (amt) { try { amt.focus(); } catch (e) {} }
     }
+}
+
+// ---- فیلد «تاریخ» در فورم دریافتی/پرداختی همین بل ----
+function _billReceiveDateDefault(isPurchase) {
+    var which = isPurchase ? 'purchase' : 'sales';
+    var el = document.getElementById(which + '-receive-edit-date');
+    if (!el) return;
+    el.dataset.shown = '1';
+    if (el.dataset.userSet === '1' && el.value) return;   // تاریخی که کاربر داده حفظ می‌شود
+    try { delete el.dataset.userSet; } catch (e) {}
+    var v = '';
+    try {
+        var form = document.getElementById(isPurchase ? 'purchaseForm' : 'salesForm');
+        var editId = form && form.dataset ? form.dataset.editId : '';
+        if (editId && db && typeof db.getTransactions === 'function') {
+            var all = db.getTransactions() || [];
+            var bill = all.find(function (t) { return t && t.id == editId; });
+            if (bill && bill.cashDate) v = bill.cashDate;
+            if (!v) {
+                var linked = all.find(function (t) { return t && t.linkedBillId != null && t.linkedBillId == editId; });
+                if (linked && linked.date) v = linked.date;
+            }
+        }
+    } catch (e) { v = ''; }
+    if (!v) { try { v = _nowJalaliDateTime(); } catch (e) { v = ''; } }
+    el.value = v;
+}
+// اگر فورمِ دریافتی/پرداختی از بلِ قبلی باز مانده باشد، فیلدِ تاریخ خالی نماند (فقط نمایش؛
+// تا کاربر فورم را باز نکند یا تاریخ را تغییر ندهد، چیزی ثبت نمی‌شود)
+function _billReceiveDateInstall() {
+    if (window.__billRecvDateInstalled) return;
+    window.__billRecvDateInstalled = true;
+    document.addEventListener('sectionChanged', function (e) {
+        var sid = e && e.detail ? e.detail.sectionId : '';
+        if (sid !== 'sales-form' && sid !== 'purchase-form') return;
+        var isP = (sid === 'purchase-form');
+        setTimeout(function () { _billReceiveDateShowOnly(isP); }, 700);
+    });
+}
+function _billReceiveDateShowOnly(isPurchase) {
+    try {
+        var which = isPurchase ? 'purchase' : 'sales';
+        var panel = document.getElementById(which + '-receive-edit');
+        var el = document.getElementById(which + '-receive-edit-date');
+        if (!panel || !el || !panel.classList.contains('open') || el.value) return;
+        var v = '';
+        var form = document.getElementById(isPurchase ? 'purchaseForm' : 'salesForm');
+        var editId = form && form.dataset ? form.dataset.editId : '';
+        if (editId && db && typeof db.getTransactions === 'function') {
+            var bill = (db.getTransactions() || []).find(function (t) { return t && t.id == editId; });
+            if (bill && bill.cashDate) v = bill.cashDate;
+        }
+        if (!v) v = _nowJalaliDateTime();
+        el.value = v;
+    } catch (e) {}
+}
+// هنگامِ ثبتِ بل: تاریخِ دریافتی/پرداختی (اگر فورمِ آن باز یا تاریخ داده شده) و پاک‌کردنِ نشانه‌ها
+function _billReceiveDateTake(isPurchase) {
+    var el = document.getElementById((isPurchase ? 'purchase' : 'sales') + '-receive-edit-date');
+    if (!el) return '';
+    var used = (el.dataset.shown === '1' || el.dataset.userSet === '1');
+    var v = used ? String(el.value || '').trim() : '';
+    if (v) { try { if (typeof toEnglishDigits === 'function') v = toEnglishDigits(v); } catch (e) {} }
+    try { delete el.dataset.shown; delete el.dataset.userSet; } catch (e) {}
+    return v;
+}
+function billReceiveDatePick(isPurchase, trigger) {
+    var id = (isPurchase ? 'purchase' : 'sales') + '-receive-edit-date';
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (!el.value) { try { _billReceiveDateDefault(isPurchase); } catch (e) {} }
+    // کیبوردِ موبایل بسته شود تا تقویم جا داشته باشد
+    try { var ae = document.activeElement; if (ae && ae !== document.body && typeof ae.blur === 'function') ae.blur(); } catch (e) {}
+    if (typeof openDualCalendarPicker !== 'function') return;
+    openDualCalendarPicker(id, trigger || el);
+    _billFitCalendarPopup();
+}
+// موبایل/صفحهٔ کوتاه: تقویم وسطِ صفحه و درونِ صفحه (روی نوارِ پایین/فورم نمی‌افتد)
+function _billFitCalendarPopup() {
+    try {
+        var ov = document.getElementById('_dual_cal_overlay');
+        var box = ov && ov.firstElementChild;
+        if (!box) return;
+        var vw = window.innerWidth || document.documentElement.clientWidth;
+        var vh = window.innerHeight || document.documentElement.clientHeight;
+        var r = box.getBoundingClientRect();
+        var small = vw <= 768 || vh <= 600 || r.bottom > vh - 4 || r.top < 0;
+        if (!small) return;
+        ov.style.background = 'rgba(15,23,42,.35)';
+        ov.style.zIndex = '2147482000';
+        box.style.zIndex = '2147482001';
+        box.style.top = '50%';
+        box.style.left = '50%';
+        box.style.right = 'auto';
+        box.style.transform = 'translate(-50%,-50%)';
+        box.style.width = Math.min(310, vw - 16) + 'px';
+        box.style.maxWidth = 'calc(100vw - 16px)';
+        box.style.maxHeight = (vh - 24) + 'px';
+    } catch (e) {}
 }
 
 // ---- همگام‌سازی مبلغ فورم دریافتی با فیلد اصلی دریافتی/پرداختی (نظر به ارز) ----
@@ -39046,8 +39195,8 @@ function billEnableEdit(which) {
             if (dpanel) dpanel.classList.remove('open');
             var recEdit = document.getElementById('sales-receive-edit');
             if (recEdit) recEdit.classList.remove('open');
-            ['sales-receive-edit-amount', 'sales-receive-edit-desc'].forEach(function (id) {
-                var el = document.getElementById(id); if (el) el.value = '';
+            ['sales-receive-edit-amount', 'sales-receive-edit-desc', 'sales-receive-edit-date'].forEach(function (id) {
+                var el = document.getElementById(id); if (el) { el.value = ''; try { delete el.dataset.userSet; delete el.dataset.shown; } catch (e) {} }
             });
             var rt = document.getElementById('sales-receive-edit-type'); if (rt) rt.value = 'نقد';
             _applyCurrencyVisibility(false);
@@ -39070,8 +39219,8 @@ function billEnableEdit(which) {
             if (pdpanel) pdpanel.classList.remove('open');
             var precEdit = document.getElementById('purchase-receive-edit');
             if (precEdit) precEdit.classList.remove('open');
-            ['purchase-receive-edit-amount', 'purchase-receive-edit-desc'].forEach(function (id) {
-                var el = document.getElementById(id); if (el) el.value = '';
+            ['purchase-receive-edit-amount', 'purchase-receive-edit-desc', 'purchase-receive-edit-date'].forEach(function (id) {
+                var el = document.getElementById(id); if (el) { el.value = ''; try { delete el.dataset.userSet; delete el.dataset.shown; } catch (e) {} }
             });
             var prt = document.getElementById('purchase-receive-edit-type'); if (prt) prt.value = 'نقد';
             _applyCurrencyVisibility(true);
@@ -39237,6 +39386,13 @@ function billEnableEdit(which) {
                 var descEl = document.getElementById((isSale ? 'sales' : 'purchase') + '-receive-edit-desc');
                 var rType = (typeEl && typeEl.value) ? typeEl.value : 'نقد';
                 var rDesc = (descEl && descEl.value) ? descEl.value : '';
+                // تاریخِ دریافتی/پرداختی: فقط وقتی فورمِ ویرایشِ آن باز یا تاریخ داده شده باشد؛ وگرنه مثلِ قبل تاریخِ بل
+                var dateEl = document.getElementById((isSale ? 'sales' : 'purchase') + '-receive-edit-date');
+                var rDate = tx.date;
+                if (dateEl && (dateEl.dataset.shown === '1' || dateEl.dataset.userSet === '1') && String(dateEl.value || '').trim()) {
+                    rDate = String(dateEl.value).trim();
+                    try { if (typeof toEnglishDigits === 'function') rDate = toEnglishDigits(rDate); } catch (e) {}
+                }
 
                 // جلوگیری از ساخت تکراری برای همان بل (در صورت ذخیرهٔ مجدد)
                 var existing = (db.getTransactions ? db.getTransactions() : []).find(function (t) {
@@ -39247,7 +39403,7 @@ function billEnableEdit(which) {
                     type: isSale ? 'دریافت' : 'پرداخت',
                     personId: personId ? parseInt(personId) : null,
                     personName: personName || '',
-                    date: tx.date,
+                    date: rDate,
                     amount: cashAmt,
                     currency: cur,
                     cashboxId: null,            // ← بدون اثر روی حساب (پول از طریق بل شمرده شده)
@@ -42075,7 +42231,7 @@ function ndCloseAllMenus() {
     try { if (typeof closeCashboxMenus === 'function') closeCashboxMenus(); } catch (e) {}
     try { if (typeof closeProductActionBar === 'function') closeProductActionBar(); } catch (e) {}
     try {
-        var kill = document.querySelectorAll('.floating-action-toolbar, .clog-action-bar, .person-actions-menu');
+        var kill = document.querySelectorAll('.floating-action-toolbar, .clog-action-bar, .person-actions-menu, #jouya-pp-sharemenu');
         for (var i = 0; i < kill.length; i++) { try { kill[i].parentNode.removeChild(kill[i]); } catch (e) {} }
         var open = document.querySelectorAll('.person-row-menu.open');
         for (var j = 0; j < open.length; j++) open[j].classList.remove('open');
@@ -42168,8 +42324,12 @@ function ndUpdIsDesktopApp() {
 function ndUpdIsAndroidApp() {
     try {
         var C = window.Capacitor;
-        if (C && typeof C.getPlatform === 'function') return C.getPlatform() === 'android';
-        if (C && C.platform) return C.platform === 'android';
+        if (C && typeof C.getPlatform === 'function' && C.getPlatform() === 'android') return true;
+        if (C && C.platform === 'android') return true;
+        // پلِ نیتیوِ Capacitor روی اندروید (همان چیزی که getPlatform از آن می‌خوانَد)
+        if (window.androidBridge) return true;
+        if (C && typeof C.isNativePlatform === 'function' && C.isNativePlatform() &&
+            /Android/i.test((navigator && navigator.userAgent) || '')) return true;
         // فالبک: نشانِ صریح که در بیلدِ اندروید در index تزریق می‌شود (در صورت نبودِ Capacitor)
         if (window.__JOUYA_RUNTIME === 'android') return true;
     } catch (e) {}
@@ -42181,7 +42341,25 @@ function ndUpdIsInstalledApp() { return ndUpdIsDesktopApp() || ndUpdIsAndroidApp
 function ndUpdSyncSidebarItem() {
     try {
         var li = document.getElementById('ssb-item-update');
-        if (li) li.style.display = ndUpdIsInstalledApp() ? '' : 'none';
+        if (!li) return;
+        var on = ndUpdIsInstalledApp();
+        // وقتی یک‌بار نسخهٔ نصبی تشخیص داده شد، در همین اجرا دیگر پنهان نمی‌شود
+        if (on) window.__ndUpdInstalledSeen = true;
+        li.style.display = (on || window.__ndUpdInstalledSeen) ? '' : 'none';
+    } catch (e) {}
+}
+// نمایشِ گزینهٔ «بروزرسانی» دیگر فقط به رندرِ داشبورد وابسته نیست: هنگامِ بوت، چند لحظه بعد
+// (آماده‌شدنِ پلِ نیتیو) و با هر بازشدنِ سایدبار/تغییرِ بخش دوباره بررسی می‌شود.
+function _ndUpdSidebarInstall() {
+    try {
+        if (window.__ndUpdSidebarInstalled) return;
+        window.__ndUpdSidebarInstalled = true;
+        var run = function () { try { ndUpdSyncSidebarItem(); } catch (e) {} };
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+        else run();
+        [600, 2000, 5000].forEach(function (t) { setTimeout(run, t); });
+        document.addEventListener('sectionChanged', run);
+        document.addEventListener('deviceready', run);
     } catch (e) {}
 }
 // مخزنِ رسمیِ برنامه — هاردکد است تا کاربر هیچ آدرسی وارد نکند و نشانیِ گیت‌هاب در
@@ -42557,7 +42735,15 @@ function ndUpdRunWebAndroidInstall(url) {
     if (isAndroid) {
         __hbAndroidNativeUpdate(url, fileName, setPct, note, closeOv, function (err) {
             try { console.warn('[nd-upd] native android update failed:', err && err.message); } catch (e) {}
-            legacyFallback('دانلودِ درون‌برنامه‌ای ممکن نشد؛ دانلود از مرورگر ادامه می‌یابد.');
+            // درخواستِ کاربر: بروزرسانی بدونِ مرورگر. مرورگر خودکار باز نمی‌شود؛ فقط پیامِ
+            // روشن + «تلاشِ دوباره» (و دکمهٔ دستیِ مرورگر به‌عنوانِ راهِ آخر).
+            closeOv();
+            ndUpdSetStatus('دانلودِ بروزرسانی کامل نشد. اتصالِ اینترنت را بررسی کنید و دوباره تلاش کنید.' +
+                '<br><small>' + ndEsc(String((err && err.message) || err || '')) + '</small>' +
+                '<br><button type="button" class="ssb-btn ssb-btn-primary" style="margin-top:8px" onclick="ndUpdDownload()">' +
+                '<i class="fas fa-rotate"></i> تلاشِ دوباره</button>' +
+                '<br><button type="button" class="ssb-btn" style="margin-top:6px" onclick="__hbOpenApkViaBrowser()">' +
+                'دانلود با مرورگر (راه آخر)</button>', 'err');
         });
         return true;
     }
@@ -42848,6 +43034,7 @@ function __hbShowInstDiag() {
  * file:// را می‌پذیرند ولی نصب را شروع نمی‌کنند) برنامه بسته می‌شد و نصبی در کار نبود.
  */
 function __hbAndroidOpenApkVerified(uri, src) {
+    try { window.__hbInstMsgShown = false; } catch (e) {}
     try { window.__hbPendingApkUri = uri || window.__hbPendingApkUri || ''; } catch (e) {}
     try {
         if (typeof ndUpdCurrentVersion === 'function') {
@@ -42868,6 +43055,13 @@ function __hbAndroidOpenApkVerified(uri, src) {
     if (/^file:/i.test(String(uri)) && env.plugins.FileOpener === 'ندارد') {
         __hbIlog('پیش‌بررسی', 'هشدار', 'نشانی file:// است و FileOpener نصب نیست — نصب تقریباً حتماً شروع نمی‌شود');
     }
+    // ── راهِ اصلی: افزونهٔ نیتیوِ همین برنامه (ApexApkInstaller) ──
+    //  پاسخِ آن قطعی است (نصب‌کننده باز شد / چرا نشد)، پس به حدس‌زدن از رویدادهای
+    //  پس‌زمینه نیازی نیست. پنجرهٔ تأییدِ نصبِ اندروید یک «دیالوگ» است و برنامه را
+    //  به پس‌زمینه نمی‌برد (Capacitor فقط در onStop رویداد می‌دهد)؛ همین باعث می‌شد روشِ
+    //  قدیمی نصب‌کنندهٔ بازشده را «باز نشده» بشمارد و گزارشِ خطای اشتباه نشان دهد.
+    //  اگر افزونه در این نسخه نبود، دقیقاً همان زنجیرهٔ قبلی اجرا می‌شود.
+    var legacy = function () {
     // زنجیره خودش هر تلاش را تأیید می‌کند؛ رسیدن به این‌جا یعنی واقعاً باز شده.
     return __hbAndroidOpenApk(uri, (typeof src !== 'undefined') ? src : null).then(function (who) {
         __hbIlog('بازکردن', 'تأییدشده', String(who || ''));
@@ -42885,6 +43079,118 @@ function __hbAndroidOpenApkVerified(uri, src) {
         __hbShowInstDiag();
         return false;
     });
+    };
+    return __hbNativeApkInstall(uri).then(function (nr) {
+        nr = nr || {};
+        if (nr.started) {
+            __hbIlog('نصب‌کنندهٔ نیتیو', 'باز شد', String(nr.uri || ''));
+            __hbAndroidExitAfterInstaller(1500);   // برنامه بسته می‌شود؛ نصب‌کننده جلوی صفحه می‌ماند
+            return true;
+        }
+        if (nr.reason) {
+            __hbIlog('نصب‌کنندهٔ نیتیو', String(nr.reason), String(nr.error || ''));
+            try { window.__hbInstMsgShown = true; } catch (e) {}
+            if (nr.reason === 'needs-permission') {
+                __hbAwaitInstallPermThenInstall(uri);
+            } else {
+                ndUpdSetStatus(__hbNativeReasonMsg(nr), 'warn');
+            }
+            return false;
+        }
+        if (nr.error) __hbIlog('نصب‌کنندهٔ نیتیو', 'خطا', String(nr.error));
+        return legacy();
+    });
+}
+
+// ── افزونهٔ نیتیوِ نصبِ بروزرسانی (android-native/ApexApkInstallerPlugin.java) ──
+function __hbNativeInstallerAvailable() {
+    try {
+        var C = window.Capacitor;
+        if (!C) return false;
+        var H = C.PluginHeaders;
+        if (Array.isArray(H)) {
+            for (var i = 0; i < H.length; i++) { if (H[i] && H[i].name === 'ApexApkInstaller') return true; }
+            return false;
+        }
+        if (typeof C.isPluginAvailable === 'function') return !!C.isPluginAvailable('ApexApkInstaller');
+    } catch (e) {}
+    return false;
+}
+function __hbNativeApkInstall(uri) {
+    if (!__hbNativeInstallerAvailable()) return Promise.resolve({ unavailable: true });
+    var p = String(uri || '').replace(/^file:\/\//i, '');
+    return Promise.resolve(__jouyaAndCall('ApexApkInstaller', 'install', { path: p }))
+        .then(function (r) { return r || {}; })
+        .catch(function (e) { return { error: (e && e.message) || String(e || '') }; });
+}
+/** پیامِ درست برای هر دلیلی که افزونه گزارش می‌دهد */
+function __hbNativeReasonMsg(r) {
+    var why = String((r && r.reason) || '');
+    var browserBtn = '<br><button type="button" class="ssb-btn" style="margin-top:6px" onclick="__hbOpenApkViaBrowser()">دانلود با مرورگر (راه آخر)</button>';
+    if (why === 'signature-mismatch') {
+        return 'این فایلِ بروزرسانی با «کلیدِ امضای» دیگری ساخته شده است؛ اندروید اجازه نمی‌دهد روی نسخهٔ فعلی نصب شود.' +
+            '<br><small>علت: نسخه‌های قبلی هر بار با کلیدِ تصادفی امضا می‌شدند (یا سیکرت‌های امضای ثابت در گیت‌هاب تعریف نشده‌اند). ' +
+            'فقط یک‌بار لازم است: اول مطمئن شوید اطلاعات با فضای ابری همگام است یا پشتیبان بگیرید، فایل را با دکمهٔ زیر ' +
+            'در پوشهٔ دانلود بگیرید، برنامه را حذف و همان فایل را نصب کنید. از آن به بعد بروزرسانی‌ها مستقیم روی نسخهٔ قبلی نصب می‌شوند.</small>' +
+            browserBtn;
+    }
+    if (why === 'older-version') {
+        return 'این فایل از نسخهٔ نصب‌شده قدیمی‌تر است و روی آن نصب نمی‌شود.' +
+            (r.apkVersion ? '<br><small>نسخهٔ فایل: ' + ndEsc(String(r.apkVersion)) + '</small>' : '');
+    }
+    if (why === 'wrong-package') return 'این فایل مربوط به برنامهٔ دیگری است و نصب نمی‌شود.';
+    if (why === 'file-missing' || why === 'invalid-apk') {
+        return 'فایلِ دانلودشده کامل یا سالم نیست.' +
+            '<br><button type="button" class="ssb-btn ssb-btn-primary" style="margin-top:8px" onclick="ndUpdDownload()"><i class="fas fa-rotate"></i> دانلودِ دوباره</button>';
+    }
+    return 'نصب‌کنندهٔ اندروید باز نشد.' + (r && r.error ? '<br><small>' + ndEsc(String(r.error)) + '</small>' : '') +
+        '<br><button type="button" class="ssb-btn ssb-btn-primary" style="margin-top:8px" onclick="__hbRetryOpenApk()">تلاشِ دوباره</button>';
+}
+/**
+ * اجازهٔ «نصب برنامه‌های ناشناس» داده نشده بود: افزونه صفحهٔ همان اجازه را باز کرده است.
+ * وقتی کاربر به برنامه برمی‌گردد، اگر اجازه روشن شده باشد نصب خودکار ادامه می‌یابد.
+ */
+function __hbAwaitInstallPermThenInstall(uri) {
+    var waitMsg = 'برای نصب، یک‌بار اجازهٔ «نصب برنامه‌های ناشناس» (Install unknown apps) را برای APEX Pump Station روشن کنید و به برنامه برگردید؛ نصب خودکار ادامه می‌یابد.' +
+        '<br><button type="button" class="ssb-btn ssb-btn-primary" style="margin-top:8px" onclick="__hbRetryOpenApk()">ادامهٔ نصب</button>' +
+        '<br><button type="button" class="ssb-btn" style="margin-top:6px" onclick="__hbAndroidOpenInstallPermSettings()">باز کردنِ صفحهٔ اجازه</button>';
+    try { ndUpdSetStatus(waitMsg, 'warn'); } catch (e) {}
+    try { if (typeof window.__hbPermWaitCleanup === 'function') window.__hbPermWaitCleanup(); } catch (e) {}
+    var left = false, done = false, handle = null, timer = null;
+    var cleanup = function () {
+        try { document.removeEventListener('visibilitychange', onVis); } catch (e) {}
+        try { if (handle && typeof handle.remove === 'function') handle.remove(); } catch (e) {}
+        try { clearTimeout(timer); } catch (e) {}
+        try { window.__hbPermWaitCleanup = null; } catch (e) {}
+    };
+    var back = function () {
+        if (done || !left) return;
+        done = true; cleanup();
+        setTimeout(function () {
+            Promise.resolve(__jouyaAndCall('ApexApkInstaller', 'canInstall', {})).then(function (r) {
+                if (r && r.allowed) { __hbIlog('اجازهٔ نصب', 'روشن شد', 'ادامهٔ خودکار'); __hbAndroidOpenApkVerified(uri); }
+                else ndUpdSetStatus(waitMsg, 'warn');
+            }).catch(function () { ndUpdSetStatus(waitMsg, 'warn'); });
+        }, 400);
+    };
+    var onVis = function () {
+        if (document.visibilityState === 'hidden') left = true;
+        else back();
+    };
+    try { document.addEventListener('visibilitychange', onVis); } catch (e) {}
+    try {
+        var A = __hbAndPlugin('App');
+        if (A && typeof A.addListener === 'function') {
+            var h = A.addListener('appStateChange', function (st) {
+                if (st && st.isActive === false) left = true;
+                else if (st && st.isActive === true) back();
+            });
+            if (h && typeof h.then === 'function') h.then(function (x) { handle = x; }).catch(function () {});
+            else handle = h;
+        }
+    } catch (e) {}
+    timer = setTimeout(cleanup, 15 * 60 * 1000);
+    try { window.__hbPermWaitCleanup = cleanup; } catch (e) {}
 }
 if (typeof window !== 'undefined') {
     window.__hbIlog = __hbIlog;
@@ -43094,6 +43400,13 @@ function __hbAndroidEnsureStoragePerm() {
 function __hbAndroidOpenInstallPermSettings() {
     // چند راهِ ممکن، به ترتیبِ دقت. هر کدام که در این نسخه موجود باشد کار می‌کند.
     var steps = [
+        function () {
+            if (!__hbNativeInstallerAvailable()) return Promise.reject(new Error('no-native'));
+            return __jouyaAndCall('ApexApkInstaller', 'openInstallPermission', {}).then(function (r) {
+                if (!r || !r.opened) throw new Error('not-opened');
+                return r;
+            });
+        },
         function () { return __jouyaAndCall('NativeSettings', 'openAndroid', { option: 'manage_unknown_app_sources' }); },
         function () { return __jouyaAndCall('NativeSettings', 'open', { optionAndroid: 'manage_unknown_app_sources' }); },
         function () { return __jouyaAndCall('AppLauncher', 'openUrl', { url: 'android-app://com.android.settings' }); },
@@ -43277,6 +43590,7 @@ function __hbRetryOpenApk() {
         try { return window.__hbPendingApkSrc || null; } catch (e) { return null; }
     })()).then(function (opened) {
         if (opened) ndUpdSetStatus('نصب‌کننده باز شد — روی «نصب» بزنید.', 'ok');
+        else if (window.__hbInstMsgShown) { /* پیامِ دقیقِ افزونهٔ نیتیو همین حالا نمایش داده شده */ }
         else ndUpdSetStatus('نصب‌کننده باز نشد. فایل همچنان روی گوشی آماده است — دانلودِ دوباره لازم نیست.' +
             '<br><small>اجازهٔ «نصب برنامه‌های ناشناس» را برای APEX Pump Station Manager روشن کنید و دوباره تلاش کنید.</small>' +
             '<br><button type="button" class="btn-primary" style="margin-top:8px" ' +
@@ -44704,14 +45018,25 @@ var _apexAnnSeq;       // شمارندهٔ درخواستِ اعلانات (پا
 
 function _apexOvlInstall() {
     try {
-        window.__apexOvlBack = function () { return _apexOvlBack(); };
+        // اگر پیش‌نمایشِ چاپ بعد از یک صفحهٔ تمام‌صفحه اضافه شده باشد (رویی‌تر است)، اول همان بسته شود
+        window.__apexOvlBack = function () {
+            try {
+                var pp = document.getElementById('jouya-pp-overlay'), top = _apexOvlTop();
+                if (pp && top && typeof window.__jouyaPreviewOverlayClose === 'function' &&
+                    (top.compareDocumentPosition(pp) & 4 /* DOCUMENT_POSITION_FOLLOWING */)) {
+                    window.__jouyaPreviewOverlayClose();
+                    return true;
+                }
+            } catch (e) {}
+            return _apexOvlBack();
+        };
         window.__apexOvlTop = function () { return _apexOvlTop(); };
         if (window.__apexOvlKeyInstalled) return;
         window.__apexOvlKeyInstalled = true;
         document.addEventListener('keydown', function (e) {
             if ((e.key === 'Escape' || e.key === 'Esc') && _apexOvlTop()) {
                 try { e.preventDefault(); e.stopImmediatePropagation(); } catch (x) {}
-                _apexOvlBack();
+                window.__apexOvlBack();
             }
         }, true);
     } catch (e) {}
@@ -44780,8 +45105,10 @@ function _apexOvlBarHtml(title, icon, actionsHtml) {
 }
 
 // ─────────────────────────────── تنظیمات بل ───────────────────────────────
-function apexBillSettingsOpen() {
+function apexBillSettingsOpen(opts) {
     try {
+        // از پیش‌نمایشِ چاپ باز شده؟ پس از «ثبت تغییرات» همان پیش‌نمایش با تنظیماتِ تازه ساخته می‌شود
+        window.__apexBillOnSaved = (opts && typeof opts.onSaved === 'function') ? opts.onSaved : null;
         // اگر از سایدبار باز شد، سایدبار باز می‌ماند و گروهِ «تنظیمات» را نشان می‌دهد
         try {
             var sb = document.getElementById('settings-sidebar');
@@ -44803,6 +45130,7 @@ function apexBillSettingsOpen() {
             onClose: function () {
                 // بستن بدونِ ثبت ⇒ تغییرات دور ریخته می‌شوند (تصاویرِ تازه هم)
                 window.__ssbBill = { billLogo: null, billSideImage: null, billBarcode: null };
+                window.__apexBillOnSaved = null;
                 try { clearTimeout(_absPrevTimer); clearTimeout(_absFitTimer); } catch (e) {}
                 try { window.removeEventListener('resize', _absOnResize); } catch (e) {}
             }
@@ -44817,6 +45145,14 @@ function apexBillSettingsOpen() {
 
 function apexBillSettingsSave() {
     try { ssbSaveBill(); } catch (e) { console.error('apexBillSettingsSave error:', e); ssbShowMsg('خطا در ثبت تنظیمات بل', true); return; }
+    // بازشده از پیش‌نمایشِ چاپ: تنظیمات بسته و همان پیش‌نمایش با تنظیماتِ تازه ساخته می‌شود
+    var _onSaved = window.__apexBillOnSaved;
+    if (typeof _onSaved === 'function') {
+        window.__apexBillOnSaved = null;
+        try { _apexOvlClose('apex-bill-ovl'); } catch (e) {}
+        try { _onSaved(); } catch (e) { console.error('bill onSaved error:', e); }
+        return;
+    }
     _absRenderPreview();
 }
 
@@ -44833,11 +45169,11 @@ function _absToggleSec(btn) {
 }
 
 function _absTabsHtml() {
-    var sec = function (id, icon, title, body, open) {
+    var sec = function (id, icon, title, body, open, sub) {
         return '<div class="abs-sec' + (open ? ' open' : '') + '" data-sec="' + id + '">' +
             '<button type="button" class="abs-sec-h" onclick="_absToggleSec(this)">' +
                 '<span class="abs-sec-ico"><i class="fas ' + icon + '"></i></span>' +
-                '<span class="abs-sec-t">' + title + '</span>' +
+                '<span class="abs-sec-t">' + title + (sub ? ('<small class="abs-sec-sub">' + sub + '</small>') : '') + '</span>' +
                 '<i class="fas fa-chevron-down abs-sec-arr"></i>' +
             '</button>' +
             '<div class="abs-sec-b">' + body + '</div>' +
@@ -44863,10 +45199,11 @@ function _absTabsHtml() {
         '<select id="ssb-bill-size"><option value="A4">A4 (بزرگ)</option><option value="A5">A5 (متوسط)</option><option value="80mm">۸۰ میلی‌متر (حرارتی)</option><option value="58mm">۵۸ میلی‌متر (حرارتی کوچک)</option></select>' +
         '<label>جهت صفحه (برای A4/A5)</label>' +
         '<select id="ssb-bill-orientation"><option value="portrait">عمودی (Portrait)</option><option value="landscape">افقی (Landscape)</option></select>' +
+        _apexMarginBoxHtml('ssb-bill-mg') +
         '<div class="abs-2col">' +
             '<div><label>رنگ اصلی</label><input type="color" id="ssb-bill-primary" value="#1b2a4a"></div>' +
             '<div><label>رنگ تأکید (طلایی)</label><input type="color" id="ssb-bill-accent" value="#c8963c"></div>' +
-        '</div>') +
+        '</div>', false, 'اندازهٔ ورق، جهت، حاشیه‌ها و رنگ‌ها') +
     sec('font', 'fa-font', 'فونت',
         '<label>نوع فونت</label>' +
         '<select id="ssb-bill-font-family"><option value="vazirmatn">استعداد (پیش‌فرض)</option><option value="tahoma">Tahoma</option><option value="nazanin">B Nazanin / نازنین</option><option value="arial">Arial</option><option value="times">Times New Roman</option><option value="courier">Courier New</option></select>' +
@@ -44895,6 +45232,108 @@ function _absTabsHtml() {
         imgRow('لوگوی پمپ استیشن', 'ssb-bill-logo-preview', 'ssb-bill-logo-file', 'billLogo', 56, 56) +
         imgRow('تصویر کناری (سمت چپ بل)', 'ssb-bill-side-preview', 'ssb-bill-side-file', 'billSideImage', 70, 48) +
         imgRow('بارکد / QR', 'ssb-bill-barcode-preview', 'ssb-bill-barcode-file', 'billBarcode', 52, 52));
+}
+
+// ─────────────── حاشیه‌های چهار طرفِ ورق (کادرِ مشترک) ───────────────
+//  _apexMarginBoxHtml(prefix) ← فیلدهای prefix-t / -r / -b / -l (بالا/راست/پایین/چپ، میلی‌متر)
+//  خالی = «استندرد». هر جای دیگری (مثلاً طراحیِ بارکد) هم می‌تواند همین کادر را بسازد.
+function _apexMgKeys() { return ['billMarginTop', 'billMarginRight', 'billMarginBottom', 'billMarginLeft']; }
+function _apexMgSides() { return ['t', 'r', 'b', 'l']; }
+/** مقدارِ میلی‌متر (۰ تا ۶۰) یا null برای «استندرد»؛ ارقامِ فارسی/عربی هم پذیرفته می‌شوند */
+function _apexMgNum(v) {
+    if (v == null) return null;
+    var s = String(v).trim();
+    if (s === '') return null;
+    s = s.replace(/[۰-۹]/g, function (d) { return String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)); })
+         .replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); })
+         .replace(/[٫,]/g, '.');
+    var n = parseFloat(s);
+    if (isNaN(n)) return null;
+    return Math.max(0, Math.min(60, n));
+}
+function _apexMarginBoxHtml(prefix) {
+    var f = function (side, label) {
+        return '<div class="apx-mg-f apx-mg-' + side + '"><span>' + label + '</span>' +
+            '<input type="number" id="' + prefix + '-' + side + '" min="0" max="60" step="0.5" inputmode="decimal" placeholder="استندرد" autocomplete="off"></div>';
+    };
+    return '<div class="apx-mg" data-mg="' + prefix + '">' +
+        '<div class="apx-mg-h"><span class="apx-mg-ttl">حاشیه‌های ورق (میلی‌متر)</span>' +
+            '<span class="apx-mg-btns">' +
+                '<button type="button" class="apx-mg-btn" onclick="_apexMarginPreset(\'' + prefix + '\',\'std\')">استندرد</button>' +
+                '<button type="button" class="apx-mg-btn" onclick="_apexMarginPreset(\'' + prefix + '\',\'min\')">حداقل</button>' +
+            '</span></div>' +
+        '<div class="apx-mg-box">' +
+            f('t', 'بالا') +
+            f('l', 'چپ') +
+            '<div class="apx-mg-paper"><i class="fas fa-file-lines"></i></div>' +
+            f('r', 'راست') +
+            f('b', 'پایین') +
+        '</div>' +
+        '<p class="apx-mg-hint">خالی = حاشیهٔ استندرد. محتوای بل خودش در فضای باقی‌مانده جا می‌شود.</p>' +
+    '</div>';
+}
+/** «استندرد» = هر چهار خالی ، «حداقل» = هر چهار ۰ — و پیش‌نمایش فوراً دوباره ساخته می‌شود */
+function _apexMarginPreset(prefix, mode) {
+    try {
+        var last = null;
+        _apexMgSides().forEach(function (sd) {
+            var el = document.getElementById(prefix + '-' + sd);
+            if (!el) return;
+            el.value = (mode === 'min') ? '0' : '';
+            last = el;
+        });
+        if (last) {
+            try { last.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+            try { last.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+        }
+    } catch (e) {}
+}
+/** پرکردنِ فیلدها از تنظیمات (نبودِ مقدار = خالی) */
+function _apexMarginFill(prefix, S) {
+    S = S || {};
+    var keys = _apexMgKeys();
+    _apexMgSides().forEach(function (sd, i) {
+        var el = document.getElementById(prefix + '-' + sd);
+        if (!el) return;
+        var n = _apexMgNum(S[keys[i]]);
+        el.value = (n == null) ? '' : String(n);
+    });
+}
+/** خواندنِ فیلدها برای ذخیره: { billMarginTop: عدد یا "" , … } — فقط وقتی فیلدها در صفحه‌اند */
+function _apexMarginRead(prefix) {
+    var out = null, keys = _apexMgKeys();
+    _apexMgSides().forEach(function (sd, i) {
+        var el = document.getElementById(prefix + '-' + sd);
+        if (!el) return;
+        if (!out) out = {};
+        var n = _apexMgNum(el.value);
+        out[keys[i]] = (n == null) ? '' : n;
+    });
+    return out;
+}
+/**
+ * CSSِ حاشیه برای انتهای استایلِ بل/رسید. اگر هر چهار مقدار خالی باشد رشتهٔ خالی برمی‌گردد
+ * (یعنی HTMLِ خروجی دقیقاً مثلِ قبل است). ضلعِ خالی = حاشیهٔ استندردِ همان سند (std).
+ *  روی صفحه: بدنه همان «ورق» با عرضِ واقعیِ کاغذ و حاشیه‌ها داخلِ آن؛ در چاپ: حاشیه از @page.
+ *  html:not(#_) عمداً است تا از قاعدهٔ حاشیهٔ پیش‌نمایشِ درون‌برنامه‌ای (jouya-pp-live) قوی‌تر باشد.
+ *  عرضِ بدنه !important است چون fit()ِ پیش‌نمایشِ دسکتاپ روی body عرضِ inline می‌گذارد.
+ */
+function _apexBillMarginCss(S, paperWidth, std, frameSel) {
+    try {
+        S = S || {};
+        var keys = _apexMgKeys(), vals = [], any = false;
+        for (var i = 0; i < keys.length; i++) {
+            var n = _apexMgNum(S[keys[i]]);
+            if (n != null) any = true;
+            vals.push(n);
+        }
+        if (!any) return '';
+        var m = vals.map(function (n) { return (n == null ? std : n) + 'mm'; }).join(' ');
+        return 'html { background:#eceff3 }' +
+            'html:not(#_) body { width:' + paperWidth + ' !important; max-width:none; margin:0 auto !important; padding:' + m + ' !important; background:#fff !important; box-sizing:border-box }' +
+            'html:not(#_) ' + frameSel + ' { max-width:none !important; width:100% !important; margin:0 !important }' +
+            '@media print { @page { margin:' + m + ' } html, html:not(#_) body { background:#fff !important } html:not(#_) body { width:auto !important; margin:0 !important; padding:0 !important } }';
+    } catch (e) { return ''; }
 }
 
 function _absSchedulePreview() {

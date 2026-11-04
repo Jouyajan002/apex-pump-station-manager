@@ -10619,3 +10619,73 @@ body.dark-mode .aan-ovl .aan-card.is-new .aan-ico { background: #1e3a6b; color: 
 body.dark-mode .aan-ovl .aan-title { color: #f1f5f9; }
 body.dark-mode .aan-ovl .aan-text { color: #cbd5e1; }
 body.dark-mode .aan-ovl .aan-state { color: #94a3b8; }
+
+/* ═══ دسترسی سریع: آیکن‌های خرید/دریافتی/پرداختی/قرائت میتر ═══ */
+#dashboard .nd-qa i.nd-qa-flip { transform: scaleX(-1); }
+#dashboard .nd-qa i.nd-qa-money { position: relative; display: inline-block; }
+#dashboard .nd-qa i.nd-qa-money .nd-qa-arr {
+    position: absolute; left: -.42em; bottom: -.3em;
+    width: 1.55em; height: 1.55em; font-size: .5em; font-weight: 900; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%; background: var(--nd-qa-c, #1e3a5f); color: #fff;
+    box-shadow: 0 0 0 1.5px var(--nd-card, #fff);
+}
+#dashboard .nd-qa i.nd-qa-svg { display: inline-block; line-height: 1; }
+#dashboard .nd-qa i.nd-qa-svg svg { display: block; width: 1.15em; height: 1.15em; margin: -.075em 0; overflow: visible; }
+#dashboard .nd-qa i.nd-qa-svg .nd-qa-pen-gap { fill: none; stroke: var(--nd-card, #fff); stroke-width: 2.2; stroke-linejoin: round; }
+
+/* ═══ فورم دریافتی/پرداختی بل: فیلد تاریخ ═══ */
+.bill-receive-edit .bill-receive-edit-date { flex: 1; min-width: 0; position: relative; display: flex; align-items: center; }
+.bill-receive-edit .bill-receive-edit-date input { flex: 1; width: 100%; padding-left: 34px !important; direction: ltr; text-align: right; unicode-bidi: plaintext; }
+.bill-receive-edit .bill-receive-date-btn {
+    position: absolute; left: 6px; top: 50%; transform: translateY(-50%);
+    width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; color: var(--bill-navy, #1b2a4a); cursor: pointer; font-size: 14px;
+}
+.bill-receive-edit .bill-receive-date-btn:hover { background: rgba(27, 42, 74, .08); }
+body.dark-mode .bill-receive-edit .bill-receive-date-btn { color: #93c5fd; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   حاشیه‌های ورق (کادرِ مشترکِ .apx-mg) + زیرعنوانِ بخش در «تنظیمات بل»
+   ═══════════════════════════════════════════════════════════════════════════ */
+.abs-ovl .abs-sec-t .abs-sec-sub { display: block; font-size: .72rem; font-weight: 600; color: #64748b; margin-top: 2px; }
+body.dark-mode .abs-ovl .abs-sec-t .abs-sec-sub { color: #94a3b8; }
+.apx-mg { margin: 12px 0 4px; }
+.apx-mg .apx-mg-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.apx-mg .apx-mg-ttl { font-size: .84rem; font-weight: 700; color: #475569; }
+.apx-mg .apx-mg-btns { display: inline-flex; gap: 6px; flex: 0 0 auto; }
+.apx-mg .apx-mg-btn {
+    border: 1px solid #cbd5e1; background: #f1f5f9; color: #1b2a4a; border-radius: 999px;
+    padding: 3px 11px; font-family: inherit; font-size: .74rem; font-weight: 700; cursor: pointer; line-height: 1.6;
+}
+.apx-mg .apx-mg-btn:hover { background: #e2e8f0; }
+.apx-mg .apx-mg-box {
+    direction: ltr; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: auto auto auto;
+    gap: 8px; align-items: end; padding: 10px; border: 1.5px dashed #b6c3d6; border-radius: 12px; background: #f8fafc;
+}
+.apx-mg .apx-mg-f { min-width: 0; direction: rtl; text-align: center; }
+.apx-mg .apx-mg-f > span { display: block; font-size: .72rem; font-weight: 700; color: #64748b; margin-bottom: 3px; }
+.apx-mg .apx-mg-f input[type="number"] {
+    width: 100%; height: 36px; padding: 4px 6px; margin: 0; text-align: center; direction: ltr;
+    border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #1a2533; font-family: inherit; font-size: .88rem;
+}
+.apx-mg .apx-mg-f input[type="number"]::placeholder { color: #94a3b8; font-size: .72rem; }
+.apx-mg .apx-mg-box .apx-mg-t { grid-column: 2; grid-row: 1; }
+.apx-mg .apx-mg-box .apx-mg-l { grid-column: 1; grid-row: 2; }
+.apx-mg .apx-mg-box .apx-mg-paper { grid-column: 2; grid-row: 2; }
+.apx-mg .apx-mg-box .apx-mg-r { grid-column: 3; grid-row: 2; }
+.apx-mg .apx-mg-box .apx-mg-b { grid-column: 2; grid-row: 3; }
+.apx-mg .apx-mg-paper {
+    align-self: stretch; min-height: 54px; display: flex; align-items: center; justify-content: center;
+    border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #94a3b8; font-size: 1.5rem;
+    box-shadow: 0 2px 6px rgba(15,23,42,.08);
+}
+.apx-mg .apx-mg-hint { font-size: .76rem; color: #64748b; margin: 6px 0 0; line-height: 1.7; }
+body.dark-mode .apx-mg .apx-mg-ttl { color: #94a3b8; }
+body.dark-mode .apx-mg .apx-mg-btn { background: #273449; border-color: #334155; color: #e2e8f0; }
+body.dark-mode .apx-mg .apx-mg-btn:hover { background: #334155; }
+body.dark-mode .apx-mg .apx-mg-box { background: #0f172a; border-color: #3b4a63; }
+body.dark-mode .apx-mg .apx-mg-f > span { color: #94a3b8; }
+body.dark-mode .apx-mg .apx-mg-f input[type="number"] { background: #111827; color: #e2e8f0; border-color: #334155; }
+body.dark-mode .apx-mg .apx-mg-paper { background: #1e293b; border-color: #334155; color: #64748b; box-shadow: none; }
+body.dark-mode .apx-mg .apx-mg-hint { color: #94a3b8; }
