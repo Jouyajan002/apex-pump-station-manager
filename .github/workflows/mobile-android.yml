@@ -198,6 +198,27 @@ jobs:
         run: npx cap add android
 
       # ══════════════════════════════════════════════════════════════════════
+      #  افزونهٔ نیتیوِ «نصبِ بروزرسانی» (android-native/)
+      #  ---------------------------------------------------------------------
+      #  فایلِ APKِ دانلودشده را مستقیم به نصب‌کنندهٔ اندروید می‌دهد (content:// از
+      #  FileProvider) و پیش از آن امضا/نسخه/اجازهٔ نصب را بررسی می‌کند تا به‌جای
+      #  «App not installed» پیامِ درست داده شود. MainActivity آن را ثبت می‌کند.
+      # ══════════════════════════════════════════════════════════════════════
+      - name: افزودنِ افزونهٔ نصبِ بروزرسانی
+        run: |
+          set -e
+          if [ ! -f android-native/ApexApkInstallerPlugin.java ]; then
+            echo "::warning::android-native/ApexApkInstallerPlugin.java پیدا نشد؛ نصبِ بروزرسانی با روشِ قبلی انجام می‌شود."; exit 0
+          fi
+          MA=$(find android/app/src/main/java -name MainActivity.java | head -1)
+          if [ -z "$MA" ]; then echo "::error::MainActivity.java پیدا نشد"; exit 1; fi
+          DIR=$(dirname "$MA")
+          cp android-native/ApexApkInstallerPlugin.java "$DIR/ApexApkInstallerPlugin.java"
+          cp android-native/MainActivity.java "$MA"
+          echo "— $DIR —"; ls -la "$DIR"
+          grep -n "registerPlugin" "$MA"
+
+      # ══════════════════════════════════════════════════════════════════════
       #  (مورد f) ماندگاریِ دادهٔ کاربر — پشتیبان‌گیریِ خودکارِ اندروید
       #  ---------------------------------------------------------------------
       #  هدف: داده‌های کاربر (localStorageِ WebView) در این حالت‌ها از بین نرود:
@@ -417,12 +438,70 @@ jobs:
           sed -i "s/versionName .*/versionName \"${{ steps.ver.outputs.vname }}\"/" "$GRADLE"
           grep -E "versionCode|versionName" "$GRADLE"
 
+      # ══════════════════════════════════════════════════════════════════════
+      #  امضای ثابت — شرطِ «نصب روی نسخهٔ قبلی»
+      #  ---------------------------------------------------------------------
+      #  اندروید بروزرسانی را فقط وقتی روی نسخهٔ نصب‌شده می‌نشاند که هر دو با «همان
+      #  کلید» امضا شده باشند. بدونِ این مرحله، گریدل در هر اجرای گیت‌هاب یک کلیدِ
+      #  debugِ تازه و تصادفی می‌سازد؛ پس هر APK کلیدِ متفاوتی دارد و نصب روی نسخهٔ
+      #  قبلی با پیامِ «App not installed / برنامه نصب نشد» رد می‌شود.
+      #  اینجا کلیدِ ثابت از سیکرت‌های مخزن خوانده می‌شود و جای کلیدِ debug می‌نشیند
+      #  (نوعِ بیلد و بقیهٔ تنظیمات همان قبلی است).
+      #  سیکرت‌ها: APEXPS_ANDROID_KEYSTORE_B64 , APEXPS_ANDROID_KEYSTORE_PASSWORD ,
+      #            APEXPS_ANDROID_KEY_ALIAS , APEXPS_ANDROID_KEY_PASSWORD
+      # ══════════════════════════════════════════════════════════════════════
+      - name: امضای ثابتِ APK
+        shell: bash
+        env:
+          KS_B64: ${{ secrets.APEXPS_ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.APEXPS_ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.APEXPS_ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.APEXPS_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -e
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ] || [ -z "$KS_ALIAS" ]; then
+            echo "::warning::سیکرت‌های امضای ثابت تعریف نشده‌اند — APK با کلیدِ تصادفیِ همین اجرا امضا می‌شود و روی نسخهٔ قبلی نصب نخواهد شد."
+            exit 0
+          fi
+          echo "$KS_B64" | tr -d ' \r\n' | base64 -d > android/app/apexps-signing.keystore
+          [ -n "$KEY_PASS" ] || KEY_PASS="$KS_PASS"
+          {
+            echo ""
+            echo "// امضای ثابت (از سیکرت‌های مخزن) — جایگزینِ کلیدِ تصادفیِ debug"
+            echo "android {"
+            echo "    signingConfigs {"
+            echo "        debug {"
+            echo "            storeFile file('apexps-signing.keystore')"
+            echo "            storePassword System.getenv('APEXPS_KS_PASS')"
+            echo "            keyAlias System.getenv('APEXPS_KS_ALIAS')"
+            echo "            keyPassword System.getenv('APEXPS_KEY_PASS')"
+            echo "        }"
+            echo "    }"
+            echo "}"
+          } >> android/app/build.gradle
+          {
+            echo "APEXPS_KS_PASS=$KS_PASS"
+            echo "APEXPS_KS_ALIAS=$KS_ALIAS"
+            echo "APEXPS_KEY_PASS=$KEY_PASS"
+          } >> "$GITHUB_ENV"
+          echo "امضای ثابت تنظیم شد."
+
       - name: ساختِ APK
         run: |
           set -e
           cd android
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon
+
+      # اثرِ انگشتِ کلیدِ امضا را چاپ می‌کند؛ این عدد باید در همهٔ نسخه‌ها یکی باشد.
+      - name: بررسیِ امضای APK
+        run: |
+          AS=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | tail -1)
+          if [ -n "$AS" ]; then
+            "$AS" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | grep -i "SHA-256" || true
+          else
+            echo "::warning::apksigner پیدا نشد"
+          fi
 
       - name: نام‌گذاریِ خروجی
         id: out
