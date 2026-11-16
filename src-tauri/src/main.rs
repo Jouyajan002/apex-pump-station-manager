@@ -25,6 +25,9 @@ use tauri::Manager; // برای get_webview_window (failsafeِ نمایشِ پن
 // ورودِ گوگل با OAuth Desktop/Loopback (همان منطقِ main.js الکترون) — فایلِ جدا: google_oauth.rs
 mod google_oauth;
 
+// چاپِ سیستمیِ ویندوز (ShowPrintUI از نوعِ SYSTEM + تنظیمِ موقتِ پنجرهٔ چاپِ ویندوز ۱۱) — فایلِ جدا: hb_print.rs
+mod hb_print;
+
 // ── ابزارِ کوچک: پاک‌سازیِ نامِ فایل (هیچ مسیری از بیرون تزریق نشود) ─────────────
 fn sanitize_file_name(name: &str) -> String {
     let mut out: String = name
@@ -829,6 +832,7 @@ fn main() {
             hb_share_text_win,
             hb_google_signin,
             hb_google_refresh_token,
+            hb_print::hb_print_system,
             hb_download_and_run
         ])
         .run(tauri::generate_context!())
