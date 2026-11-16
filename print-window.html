@@ -81,10 +81,23 @@
   try { tok = (new URLSearchParams(location.search)).get('t') || ''; } catch (e) { tok = ''; }
   var EV_READY = 'hb-print-ready' + (tok ? ('-' + tok) : '');
   var EV_HTML  = 'hb-print-html'  + (tok ? ('-' + tok) : '');
+  // مورد ۲۹: حالتِ «چاپِ سیستمی» (پنجرهٔ نامرئیِ ۱×۱): محتوا روی خودِ همین صفحه نوشته می‌شود و پنجرهٔ اصلی
+  // فرمانِ Rust (hb_print_system) را برای همین پنجره صدا می‌زند تا فقط پنجرهٔ چاپِ ویندوز باز شود.
+  var SYS = false;
+  try { SYS = (new URLSearchParams(location.search)).get('sys') === '1'; } catch (e) { SYS = false; }
+  var EV_RENDERED = 'hb-print-rendered' + (tok ? ('-' + tok) : '');
 
   function render(html) {
     if (rendered) return;
     rendered = true;
+    if (SYS) {
+      var writeTop = function () { try { document.open(); document.write(html); document.close(); } catch (e) {} };
+      try {
+        var pr = T.event.emit(EV_RENDERED, Date.now());
+        if (pr && typeof pr.then === 'function') pr.then(writeTop, writeTop); else writeTop();
+      } catch (e) { writeTop(); }
+      return;
+    }
     var wrap = document.getElementById('hb-wrap');
     wrap.innerHTML = '';
     var f = document.createElement('iframe');

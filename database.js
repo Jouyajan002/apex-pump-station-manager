@@ -297,9 +297,9 @@ getCurrentDate() {
             // اصلاح اسپرد: ...personData
             const person = { ...personData };
 
-            // اعتبارسنجی
-            if (!person.name || !person.category) {
-                throw new Error('نام و کتگوری الزامی است');
+            // اعتبارسنجی — کتگوری اختیاری است (فقط نام الزامی)
+            if (!person.name) {
+                throw new Error('نام الزامی است');
             }
 
             if (person.id) {

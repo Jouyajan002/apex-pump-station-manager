@@ -56,7 +56,9 @@
             // بستن با لمسِ بیرون از منو
             setTimeout(function () {
                 function outside(ev) {
-                    var t = document.querySelector('.floating-action-toolbar');
+                    // مورد ۱۸: فقط منویی که همین لمس باز کرد؛ اگر آن منو از راهِ دیگری بسته شده، این شنونده
+                    // کهنه است و نباید منوی تازهٔ ردیفِ دیگر را ببندد.
+                    var t = (tb && document.body.contains(tb)) ? tb : null;
                     if (!t) { document.removeEventListener('click', outside, true); return; }
                     if (!t.contains(ev.target) && !kebab.contains(ev.target)) {
                         if (typeof window.closeProductActionBar === 'function') window.closeProductActionBar();
@@ -198,6 +200,33 @@
     // فازِ capture تا مستقل از بستن‌کننده‌های داخلی، بسته‌شدن تضمین شود.
     document.addEventListener('click', actionMenuTapCloser, true);
 
+    /* ── مورد ۱۸: mouseleaveِ ساختگی پس از لمس ──
+     *  بعد از باز شدنِ منو با لمس، مرورگر یک mouseleaveِ ساختگی به منو یا دکمهٔ سه‌نقطه می‌فرستد و تایمرِ
+     *  ۳۰۰msِ «بستن با hover» منو را فوراً می‌بست. نوعِ آخرین اشاره (pointerdown/pointermove/touchstart)
+     *  نگه داشته می‌شود؛ اگر لمسی بود، آن mouseleave/mouseout به منو و دکمه نمی‌رسد. با ماوسِ واقعی رفتارِ
+     *  قبلی می‌ماند. بستن روی لمس از مسیرِ «لمسِ بیرونِ منو» یا «انتخابِ گزینه» (بالا) انجام می‌شود. */
+    var _lastPtrTouch = false;
+    try { document.addEventListener('touchstart', function () { _lastPtrTouch = true; }, { capture: true, passive: true }); } catch (_) {}
+    document.addEventListener('pointerdown', function (e) { _lastPtrTouch = !!(e && (e.pointerType === 'touch' || e.pointerType === 'pen')); }, true);
+    document.addEventListener('pointermove', function (e) { if (e && e.pointerType === 'mouse') _lastPtrTouch = false; }, true);
+    function _blockSyntheticLeave(e) {
+        try {
+            if (!_lastPtrTouch) return;
+            var t = e.target;
+            if (!t || !t.closest) return;
+            if (t.closest(MENU_SELECTOR) || t.closest(TRIGGER_SELECTOR)) {
+                e.stopImmediatePropagation(); e.stopPropagation();
+            }
+        } catch (_) {}
+    }
+    document.addEventListener('mouseleave', _blockSyntheticLeave, true);
+    document.addEventListener('mouseout', _blockSyntheticLeave, true);
+    // mouseoverِ ساختگیِ بعد از لمس روی عنصرِ دیگر، شبکهٔ ایمنیِ «hover بیرونِ منو» را فعال و منو را می‌بست؛
+    // وقتی منو باز است و آخرین اشاره لمسی بوده، به آن نمی‌رسد.
+    document.addEventListener('mouseover', function (e) {
+        try { if (_lastPtrTouch && anyMenuOpen()) { e.stopImmediatePropagation(); e.stopPropagation(); } } catch (_) {}
+    }, true);
+
     /* ───────────────────────────────────────────────────────────────────────
      * ۱-ج) ریسِتِ نوارِ جستجو هنگامِ خروج از هر بخش (سراسری: دسکتاپ + موبایل)
      *  خواسته: اگر در یک بخش (مثلاً «ذخایر») چیزی جستجو شد و کاربر به بخشِ دیگری
@@ -206,12 +235,29 @@
      *  همهٔ نوارهای جستجوی سراسری خالی و فیلترشان با اجرای هندلرِ خودِ همان input
      *  (onkeyup="globalSearch(...)") صفر می‌شود — بدونِ تغییر در منطقِ جستجو.
      * ─────────────────────────────────────────────────────────────────────── */
-    function resetAllGlobalSearch() {
+    /* مورد ۱۷: جستجو و فیلتر تا خروجِ کامل از بخش می‌ماند. زیرصفحه‌های همان بخش (مثلاً لیستِ معاملاتِ شخص)
+     * و فرم‌ها/جزئیات خانوادهٔ بخش را عوض نمی‌کنند؛ با رفتن به بخشِ دیگر همه خالی می‌شوند. */
+    var _SEARCH_FAMILY = {
+        'person-transactions-list': 'persons-list', 'person-info-list': 'persons-list', 'person-detail': 'persons-list',
+        'product-inout-list': 'products-list', 'product-detail': 'products-list', 'meter-readings-list': 'products-list',
+        'expenses': 'financial', 'cash-boxes': 'financial', 'cashbox-transactions-list': 'financial', 'employee-management': 'financial'
+    };
+    var _searchFamily = null;
+    function _sectionFamily(sid) {
+        if (!sid) return null;
+        if (/-form(-section)?$/.test(sid) || sid === 'tx-detail') return null;   // فرم/جزئیات: خانواده عوض نمی‌شود
+        return _SEARCH_FAMILY[sid] || sid;
+    }
+    function resetAllGlobalSearch(keepIn) {
         try {
             var inputs = document.querySelectorAll('input[id^="global-search-"]');
             for (var i = 0; i < inputs.length; i++) {
                 var inp = inputs[i];
                 if (!inp || inp.value === '') continue;
+                if (keepIn) {
+                    var _sec = inp.closest ? inp.closest('.section') : null;
+                    if (_sec && keepIn.indexOf(_sec.id) >= 0) continue;
+                }
                 inp.value = '';
                 // اجرای هندلرِ خودِ input تا لیستِ فیلترشده به حالتِ کامل برگردد
                 try { inp.dispatchEvent(new Event('keyup', { bubbles: true })); } catch (_) {
@@ -220,9 +266,31 @@
             }
         } catch (_) {}
     }
-    document.addEventListener('sectionChanged', function () {
-        // کمی تأخیر تا بخشِ جدید بارگذاری شود، سپس نوارهای جستجو پاک شوند
-        setTimeout(resetAllGlobalSearch, 0);
+    function _reapplySearchIn(sid) {
+        try {
+            var sec = document.getElementById(sid); if (!sec) return;
+            var inputs = sec.querySelectorAll('input[id^="global-search-"]');
+            for (var i = 0; i < inputs.length; i++) {
+                if (!inputs[i].value) continue;
+                try { inputs[i].dispatchEvent(new Event('keyup', { bubbles: true })); } catch (_) {}
+            }
+        } catch (_) {}
+    }
+    document.addEventListener('sectionChanged', function (e) {
+        var sid = e && e.detail && e.detail.sectionId;
+        var fam = _sectionFamily(sid);
+        if (fam === null) return;                      // فرم یا جزئیات: جستجو دست نمی‌خورد
+        if (fam !== _searchFamily) {
+            _searchFamily = fam;
+            // کمی تأخیر تا بخشِ جدید بارگذاری شود، سپس نوارهای جستجو پاک شوند
+            setTimeout(function () { resetAllGlobalSearch(); }, 0);
+            return;
+        }
+        // همان بخش: جستجوی خودِ این صفحه و صفحهٔ اصلیِ بخش می‌ماند؛ جستجوی زیرصفحه‌های دیگر خالی می‌شود
+        setTimeout(function () { resetAllGlobalSearch([sid, fam]); }, 0);
+        // لیست پس از برگشت دوباره ساخته می‌شود؛ فیلترِ همان جستجو دوباره اعمال شود
+        setTimeout(function () { _reapplySearchIn(sid); }, 150);
+        setTimeout(function () { _reapplySearchIn(sid); }, 450);
     });
 
     /* ───────────────────────────────────────────────────────────────────────
@@ -377,7 +445,7 @@
             toggle.className = 'jouya-info-toggle';
             toggle.setAttribute('aria-expanded', 'false');
             toggle.innerHTML =
-                '<span class="jql-label"><i class="fas fa-chart-pie"></i> نرخ ارز، حساب‌ها و مفاد خالص</span>' +
+                '<span class="jql-label"><i class="fas fa-chart-pie"></i> نرخ ارز، خزانه‌ها و مفاد خالص</span>' +
                 '<i class="fas fa-chevron-down jql-chevron"></i>';
             toggle.addEventListener('click', function () {
                 var collapsed = info.classList.toggle('jouya-info-collapsed');
@@ -439,4 +507,54 @@
         closeAllFloatingActionMenus: closeAllFloatingActionMenus,
         actionMenuTapCloser: actionMenuTapCloser
     };
+
+    /* ── مورد ۲۵: تازه‌سازی با کشیدن به پایین (فقط وب موبایل و اندروید؛ دسکتاپ و Tauri دست نمی‌خورند) ──
+     *  دکمهٔ تازه‌سازیِ کنارِ جستجو در موبایل پنهان است (mobile-responsive.css). در داشبورد، وقتی صفحه در بالاست
+     *  و کاربر به پایین می‌کشد و رها می‌کند، apexRefreshAll اجرا می‌شود. کشیدنِ کوتاه، صفحهٔ پایین‌رفته یا بخشِ
+     *  دیگر کاری نمی‌کند. */
+    try {
+        var _native = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+        if (_native) document.documentElement.classList.add('apx-native');
+    } catch (_) {}
+    var PTR_MIN = 80, _ptr = null;
+    function _ptrEl() {
+        var el = document.getElementById('apx-ptr');
+        if (!el) { el = document.createElement('div'); el.id = 'apx-ptr'; el.innerHTML = '<i class="fas fa-rotate-right"></i>'; document.body.appendChild(el); }
+        return el;
+    }
+    function _ptrAtTop(t) {
+        try {
+            if ((document.scrollingElement || document.documentElement).scrollTop > 0) return false;
+            for (var n = t; n && n !== document.body; n = n.parentElement) { if (n.scrollTop > 0) return false; }
+            return true;
+        } catch (_) { return false; }
+    }
+    function _ptrEnabled() {
+        if (!(isMobile() || document.documentElement.classList.contains('apx-native'))) return false;
+        var d = document.getElementById('dashboard');
+        return !!(d && d.classList.contains('active')) && !document.querySelector('.section.apx-dlg');
+    }
+    document.addEventListener('touchstart', function (e) {
+        _ptr = null;
+        if (!_ptrEnabled() || !e.touches || e.touches.length !== 1) return;
+        if (!_ptrAtTop(e.target)) return;
+        _ptr = { y: e.touches[0].clientY, x: e.touches[0].clientX, dy: 0 };
+    }, { passive: true, capture: true });
+    document.addEventListener('touchmove', function (e) {
+        if (!_ptr || !e.touches || !e.touches.length) return;
+        var dy = e.touches[0].clientY - _ptr.y, dx = Math.abs(e.touches[0].clientX - _ptr.x);
+        if (dy <= 0 || dx > dy) { _ptr.dy = 0; return; }
+        _ptr.dy = dy;
+        var el = _ptrEl(), p = Math.min(dy, 140);
+        el.style.opacity = String(Math.min(1, dy / PTR_MIN));
+        el.style.transform = 'translate(-50%, ' + (p * 0.6 - 40) + 'px) rotate(' + (dy * 2) + 'deg)';
+        el.classList.toggle('ready', dy >= PTR_MIN);
+    }, { passive: true, capture: true });
+    document.addEventListener('touchend', function () {
+        if (!_ptr) return;
+        var go = _ptr.dy >= PTR_MIN; _ptr = null;
+        var el = document.getElementById('apx-ptr');
+        if (go && typeof window.apexRefreshAll === 'function') { window.apexRefreshAll(); return; }
+        if (el) { el.style.opacity = '0'; el.style.transform = 'translate(-50%, -60px)'; el.classList.remove('ready'); }
+    }, { passive: true, capture: true });
 })();

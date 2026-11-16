@@ -633,6 +633,8 @@
             { icon: 'fa-truck-droplet', color: '#2563eb', title: 'افزودن به خرید', action: 'add-to-purchase' },
             { icon: 'fa-right-left', color: '#7c3aed', title: 'انتقال به ذخیرهٔ دیگر', action: 'transfer' },
             { icon: 'fa-exchange-alt', color: '#0891b2', title: 'لیست ورودی و خروجی', action: 'in-out-list' },
+            { icon: 'fa-circle-arrow-down', color: '#16a34a', title: 'ورودی جدید', action: 'adj-in' },
+            { icon: 'fa-circle-arrow-up', color: '#dc2626', title: 'خروجی جدید', action: 'adj-out' },
             { icon: 'fa-gauge-high', color: '#d97706', title: 'میترهای این ذخیره', action: 'meters' },
             { icon: 'fa-trash', color: '#dc2626', title: 'حذف', action: 'delete' }
         ], function (a) { window.performProductAction(productId, a); });
@@ -642,6 +644,7 @@
         if (action === 'add-to-purchase') return addTankToBill(productId, true);
         if (action === 'add-to-sale') return addTankToBill(productId, false);
         if (action === 'transfer') return openTransfer(productId);
+        if (action === 'adj-in' || action === 'adj-out') { if (typeof apexProductAdjOpen === 'function') return apexProductAdjOpen(action === 'adj-out' ? 'out' : 'in', productId); return; }
         if (action === 'meters') { psSwitchTab('meters'); var f = $('filter-meter-tank'); if (f) { fillMeterFilters(); f.value = String(productId); } renderMeters(); return; }
         return _origPerform.apply(this, arguments);
     };
@@ -1130,7 +1133,7 @@
         var cb = $('mr-cashbox');
         if (cb) {
             var boxes = []; try { boxes = db.getCashboxes() || []; } catch (e) {}
-            cb.innerHTML = '<option value="">حساب</option>' + boxes.map(function (b) { return '<option value="' + b.id + '">' + esc(b.name) + '</option>'; }).join('');
+            cb.innerHTML = '<option value="">خزانه</option>' + boxes.map(function (b) { return '<option value="' + b.id + '">' + esc(b.name) + '</option>'; }).join('');
             try { var dId = getDefaultCashboxIdForCurrency(baseCur()); if (dId) cb.value = String(dId); } catch (e) {}
             if (!cb.value && boxes.length === 1) cb.value = String(boxes[0].id);
         }
@@ -1265,7 +1268,7 @@
         if (next && N(next.currentReading) < a.cur) { msg('خطا', 'قرائتِ بعدیِ ثبت‌شده (' + fmt(next.currentReading) + ' در ' + String(next.date).split(' ')[0] + ') از این عدد کمتر است.'); return; }
         var auto = !!($('mr-autosale') && $('mr-autosale').checked) && a.diff > 0.0005 && !_readingEditId;
         var cashboxId = tfVal('mr-cashbox');
-        if (auto && !cashboxId) { msg('خطا', 'برای ثبتِ فروشِ نقدی، حساب را انتخاب کنید.'); return; }
+        if (auto && !cashboxId) { msg('خطا', 'برای ثبتِ فروشِ نقدی، خزانه را انتخاب کنید.'); return; }
         if (auto && !(a.price > 0)) { msg('خطا', 'برای ثبتِ فروشِ نقدی، قیمتِ فی لیتر را وارد کنید.'); return; }
         var list = getReadings();
         var now = nowDT();

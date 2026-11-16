@@ -1427,3 +1427,32 @@ body:has(#dashboard.section.active) #financial.section.active { display: none !i
 @media (max-width: 820px) {
     #financial.active .fin-balance-bar { top: 48px; }
 }
+
+/* ═══ مورد ۲۵: موبایل/اندروید — دکمهٔ تازه‌سازیِ کنارِ جستجو پنهان؛ تازه‌سازی با کشیدن به پایین ═══ */
+@media (max-width: 768px) { .nd-search-refresh { display: none !important; } }
+html.apx-native .nd-search-refresh { display: none !important; }
+#apx-ptr { position: fixed; top: 0; left: 50%; z-index: 3000; width: 38px; height: 38px; border-radius: 50%; background: #fff; color: #1e3a5f;
+    box-shadow: 0 4px 14px rgba(15,23,42,.22); display: flex; align-items: center; justify-content: center; font-size: 16px;
+    opacity: 0; transform: translate(-50%, -60px); transition: opacity .15s; pointer-events: none; }
+#apx-ptr.ready { color: #0d9488; }
+#apx-ptr.busy i { animation: apxPtrSpin .6s linear infinite; }
+@keyframes apxPtrSpin { to { transform: rotate(360deg); } }
+body.dark-mode #apx-ptr { background: #1e293b; color: #e2e8f0; }
+
+/* ═══ مورد ۳۱: هدر و FABِ گردِ برگشت‌ها و سفارشات در موبایل (مثلِ لیستِ فروش‌ها) ═══ */
+@media (max-width: 768px) {
+    #sales-returns-list .list-header-filter, #purchase-returns-list .list-header-filter, #proforma-list .list-header-filter {
+        padding-left: 16px !important; padding-right: 16px !important; margin-left: -16px !important; margin-right: -16px !important; column-gap: 10px !important;
+    }
+    #sales-returns-list .person-fab-add, #purchase-returns-list .person-fab-add, #proforma-list .person-fab-add {
+        font-size: 0 !important; gap: 0 !important; padding: 0 !important; width: 56px !important; height: 56px !important; border-radius: 50% !important; justify-content: center !important;
+    }
+    #sales-returns-list .person-fab-add > i, #purchase-returns-list .person-fab-add > i, #proforma-list .person-fab-add > i { font-size: 1.25rem !important; margin: 0 !important; }
+}
+
+/* ═══ مورد ۱۹: موبایل — دکمه‌های «بدون پیگیری/آزاد» زیرِ فیلدِ مبلغ تا مبلغ فشرده نشود ═══ */
+@media (max-width: 600px) {
+    .bill-amount-notrack:has(.apx-rp-modes) { flex-wrap: wrap; }
+    .bill-amount-notrack .apx-rp-modes { width: 100%; justify-content: flex-start; }
+    .bill-amount-notrack:has(.apx-rp-modes) .bill-inline-field--amount { flex: 1 1 100%; }
+}

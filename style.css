@@ -9674,19 +9674,19 @@ body.dark-mode .nd-upd-status.err  { color: #fca5a5; }
  *  ---------------------------------------------------------------------------
  *  زوم روی خودِ content-area (والدِ مشترک) اعمال می‌شود تا امورمالی و لیست‌ها همگی
  *  یک‌اندازه و با حاشیهٔ یکسان مقیاس شوند و ناهماهنگیِ هدرها برطرف شود. داشبورد با
- *  body:not(:has(#dashboard.section.active)) مستثناست. تست شد (Chromium): هدرِ امورمالی
+ *  body:not(:has(#dashboard.section.active)) مستثناست (و وقتی پنجرهٔ فرم روی داشبورد باز است: #dashboard.apx-dlg-under). تست شد (Chromium): هدرِ امورمالی
  *  و لیست‌ها دقیقاً هم‌تراز، بدونِ اسکرولِ افقی. (:has در WebView2 109+ پشتیبانی می‌شود.)
  *  یادداشتِ قدیمی: دکمهٔ شناورِ افزودن سرِجای خود می‌ماند. */
 /* کوچک‌سازیِ یک‌دستِ ~۱۰٪ برای همهٔ بخش‌ها به‌جز داشبورد — در همهٔ اندازه‌ها (موبایل و وب و
  * نصبی). درخواستِ کاربر: اشخاص/اجناس/امورمالی/گزارشات در اسکرین‌های کوچک زیادی بزرگ بودند.
  * زوم روی content-area محتوای مشترک (اشخاص/اجناس/گزارشات/فورم‌ها) را یک‌دست کوچک می‌کند.
  * «نه خیلی کوچک» → ۰٫۹۰ (۱۰٪). روی اسکرین‌های خیلی بزرگ کمی بیشتر تا تناسب حفظ شود. */
-body:not(:has(#dashboard.section.active)) .content-area { zoom: 0.90; }
+body:not(:has(#dashboard.section.active)):not(:has(#dashboard.section.apx-dlg-under)) .content-area { zoom: 0.90; }
 @media (min-width: 1600px) and (max-width: 1919px) {
-    body:not(:has(#dashboard.section.active)) .content-area { zoom: 0.88; }
+    body:not(:has(#dashboard.section.active)):not(:has(#dashboard.section.apx-dlg-under)) .content-area { zoom: 0.88; }
 }
 @media (min-width: 1920px) {
-    body:not(:has(#dashboard.section.active)) .content-area { zoom: 0.86; }
+    body:not(:has(#dashboard.section.active)):not(:has(#dashboard.section.apx-dlg-under)) .content-area { zoom: 0.86; }
 }
 /* «امور مالی» خارج از content-area و به‌صورت سکشنِ جداست؛ پس زومِ بالا آن را نمی‌گیرد.
  * برای یک‌دستی دقیقاً ۱۰٪ کوچک می‌شود (داشبورد و بقیه دست‌نخورده می‌مانند). */
@@ -10689,3 +10689,651 @@ body.dark-mode .apx-mg .apx-mg-f > span { color: #94a3b8; }
 body.dark-mode .apx-mg .apx-mg-f input[type="number"] { background: #111827; color: #e2e8f0; border-color: #334155; }
 body.dark-mode .apx-mg .apx-mg-paper { background: #1e293b; border-color: #334155; color: #64748b; box-shadow: none; }
 body.dark-mode .apx-mg .apx-mg-hint { color: #94a3b8; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   منوی سه‌نقطهٔ ردیف‌های کارتی (کارمندان، مصارف، ذخایر، اشخاص) — دسکتاپ
+   ردیف‌ها برای سرعت content-visibility:auto دارند که «paint containment» می‌آورد؛
+   منویی که از پایینِ ردیف بیرون می‌زند بریده می‌شد و «حذف» دیده/کلیک نمی‌شد.
+   فقط ردیفی که منویش باز است کامل رسم می‌شود و بالای ردیف‌های بعدی می‌نشیند.
+   (موبایل ≤۶۰۰px منو «شیتِ پایین»ِ fixed است و به این قاعده نیاز ندارد.)
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 601px) {
+.sales-card-row:has(.person-row-menu.open),
+.person-card-row:has(.person-row-menu.open),
+.product-card-row:has(.person-row-menu.open),
+.cbtx-card-row:has(.person-row-menu.open),
+.exp-card-row:has(.person-row-menu.open),
+.ptx-card-row:has(.person-row-menu.open),
+.emp-card-row:has(.person-row-menu.open),
+.svc-card-row:has(.person-row-menu.open) {
+    content-visibility: visible !important;
+    contain: none !important;
+    position: relative;
+    z-index: 60 !important;
+}
+}
+
+/* ═══ فیلدِ جستجوی شخص در «تنظیمات بل» (مشتری/تامین‌کنندهٔ پیش‌فرض) ═══ */
+.apx-psn { position: relative; }
+.apx-psn .apx-psn-ico { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: .85rem; pointer-events: none; }
+.apx-psn input[type="text"] { padding-right: 34px !important; padding-left: 34px !important; }
+.apx-psn .apx-psn-clr {
+    position: absolute; left: 6px; top: 50%; transform: translateY(-50%); width: 26px; height: 26px; border: none;
+    background: transparent; color: #94a3b8; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.apx-psn .apx-psn-clr:hover { background: #f1f5f9; color: #dc2626; }
+.apx-psn .apx-psn-res {
+    display: none; position: absolute; top: calc(100% + 4px); right: 0; left: 0; z-index: 30; max-height: 240px; overflow-y: auto;
+    background: #fff; border: 1px solid #d8dee9; border-radius: 10px; box-shadow: 0 10px 28px rgba(15,23,42,.16); padding: 4px;
+}
+.apx-psn .apx-psn-res.open { display: block; }
+.apx-psn .apx-psn-res button {
+    display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; border: none; background: transparent;
+    padding: 8px 10px; border-radius: 7px; cursor: pointer; font-family: inherit; font-size: .88rem; color: #1e293b; text-align: right;
+}
+.apx-psn .apx-psn-res button:hover { background: #f1f5f9; }
+.apx-psn .apx-psn-res button small { color: #94a3b8; font-size: .74rem; }
+.apx-psn .apx-psn-none { padding: 10px; text-align: center; color: #94a3b8; font-size: .82rem; }
+body.dark-mode .apx-psn .apx-psn-res { background: #1e293b; border-color: #334155; }
+body.dark-mode .apx-psn .apx-psn-res button { color: #e2e8f0; }
+body.dark-mode .apx-psn .apx-psn-res button:hover { background: #273449; }
+body.dark-mode .apx-psn .apx-psn-clr:hover { background: #273449; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   فرم‌های مالی — ترتیبِ تک‌ستونهٔ فیلدها، ارز داخلِ فیلدِ مبلغ (همهٔ نسخه‌ها)
+   و «پنجرهٔ جداگانه» در دسکتاپ (Tauri و وبِ دسکتاپ)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.apx-flist { display: flex; flex-direction: column; gap: 12px; }
+.apx-flist > * { width: 100%; min-width: 0; }
+.apx-flist .bill-receive-field { width: 100%; }
+.apx-flist-more { margin-bottom: 12px; }
+.apx-hide { display: none !important; }
+/* ارز داخلِ فیلدِ مبلغ — در انتهای همان فیلد */
+.apx-curfield { display: flex !important; align-items: center; }
+.apx-curfield > input { flex: 1 1 auto; min-width: 0; }
+.apx-curfield > select.apx-cur-in {
+    flex: 0 0 auto; width: auto !important; max-width: 128px; height: 32px !important; min-height: 0 !important;
+    margin: 0 4px !important; padding: 0 8px !important; border: 1px solid var(--bill-line, #d8dee9) !important;
+    border-radius: 8px !important; background: #f1f5f9 !important; color: var(--bill-navy, #1e3a5f) !important;
+    font-size: .8rem !important; font-weight: 700; box-shadow: none !important; cursor: pointer;
+}
+body.dark-mode .apx-curfield > select.apx-cur-in { background: #273449 !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+/* عکسِ شخص روی دکمهٔ کامره و آواتارِ کارت */
+#person-form .product-camera-btn.apx-has-img { background-size: cover; background-position: center; color: transparent; }
+#person-form .product-camera-btn.apx-has-img i { opacity: 0; }
+.person-card-avatar { overflow: hidden; }
+.person-card-avatar img.apx-avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
+
+/* ── پنجره (فقط دسکتاپ) ── */
+.section.apx-dlg-under { display: block !important; }
+#apx-dlg-backdrop {
+    position: fixed; inset: 0; z-index: 1500; background: rgba(15, 23, 42, .38);
+    -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+}
+.section.apx-dlg {
+    display: block !important; position: fixed !important; z-index: 1501;
+    top: 50% !important; left: 50% !important; right: auto !important; bottom: auto !important;
+    transform: translate(-50%, -50%); width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px);
+    overflow-y: auto; overflow-x: hidden; margin: 0 !important; padding: 0 !important;
+    background: var(--bill-card, #fff); border-radius: 14px; box-shadow: 0 24px 64px rgba(15, 23, 42, .38);
+}
+.section.apx-dlg:not(.apx-dlg-top) { pointer-events: none; }
+.section.apx-dlg .bill-form, .section.apx-dlg .bill-layout { min-height: 0 !important; margin: 0 !important; max-width: none !important; width: 100% !important; }
+.section.apx-dlg .bill-header-bar { margin: 0 0 4px 0 !important; padding: 13px 18px !important; border-radius: 14px 14px 0 0; }
+.section.apx-dlg .bill-header-bar .btn-back-header { display: none !important; }
+.section.apx-dlg .bill-body { padding: 14px 18px 0; gap: 12px; }
+.section.apx-dlg .bill-field { min-height: 50px; }
+.section.apx-dlg .bill-footer {
+    position: sticky; bottom: 0; z-index: 5; margin: 4px -18px 0 !important; padding: 12px 18px 16px !important;
+    background: var(--bill-card, #fff); border-top: none !important; display: flex; justify-content: flex-end;
+}
+/* «اطلاعات بیشتر» در پنجره همیشه باز است (به‌جز «بیشتر»ِ فرمِ شخص) */
+.section.apx-dlg:not(#person-form) .bill-more-panel { display: block !important; }
+.section.apx-dlg:not(#person-form) .bill-more-toggle { display: none !important; }
+/* فیلدهای چندستونه در پنجره تک‌ستونه */
+.section.apx-dlg .bill-row-fields:not(.apx-hide), .section.apx-dlg .product-grid:not(.apx-hide) { display: flex !important; flex-direction: column; gap: 12px; }
+.section.apx-dlg .product-col { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+body.dark-mode .section.apx-dlg, body.dark-mode .section.apx-dlg .bill-footer { background: #1e293b; }
+
+/* ═══ صرافی — فرمِ «تبادله ارز» و «لیست تبادلات» ═══ */
+.fx-side { display: flex; flex-direction: column; gap: 8px; }
+.fx-side-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fx-side-t { font-weight: 800; color: var(--bill-navy, #1e3a5f); font-size: .9rem; }
+.fx-side-t i { margin-left: 4px; opacity: .8; }
+.fx-kinds { display: inline-flex; gap: 4px; background: #eef2f7; padding: 3px; border-radius: 10px; }
+.fx-kinds button { border: none; background: transparent; padding: 5px 12px; border-radius: 8px; font-family: inherit; font-size: .8rem; font-weight: 700; color: #475569; cursor: pointer; }
+.fx-kinds button.on { background: var(--bill-navy, #1e3a5f); color: #fff; }
+.fx-side .fx-k { display: none; }
+.fx-side[data-kind="cashbox"] .fx-k-cashbox, .fx-side[data-kind="person"] .fx-k-person { display: flex; }
+.fx-side[data-kind="none"] .fx-k-none { display: block; }
+.fx-none-note { font-size: .8rem; color: #64748b; padding: 2px 4px; }
+.fx-side .apx-psn input[type="text"] { border: none; background: transparent; outline: none; flex: 1 1 auto; min-width: 0; font-family: inherit; font-size: 1rem; padding: 12px 2px; }
+.fx-side .apx-psn .apx-psn-ico { display: none; }
+.fx-side .apx-psn .apx-psn-res { top: calc(100% + 4px); }
+/* مبلغ آمد / مبلغ رفت / نرخ — وسط‌چین و در یک ستون منظم */
+.fx-flist .fx-num input { text-align: center; direction: ltr; font-weight: 700; font-size: 1.02rem; border: none; background: transparent; outline: none; flex: 1 1 auto; min-width: 0; padding: 12px 2px; }
+.fx-ops { display: inline-flex; gap: 4px; flex: 0 0 auto; }
+.fx-ops button { width: 32px; height: 30px; border-radius: 8px; border: 1px solid var(--bill-line, #d8dee9); background: #f1f5f9; color: #1e3a5f; font-weight: 800; cursor: pointer; font-size: 1rem; }
+.fx-ops button.on { background: var(--bill-navy, #1e3a5f); color: #fff; border-color: var(--bill-navy, #1e3a5f); }
+.fx-profit-field input { font-weight: 800; color: #475569; border: none; background: transparent; }
+.fx-profit-field input.fx-gain { color: #059669; }
+.fx-profit-field input.fx-loss { color: #dc2626; }
+.fx-flist .bill-field input:not([type="hidden"]) { min-width: 0; }
+/* لیست */
+#fx-list .fx-list-body { display: flex; flex-direction: column; gap: 10px; padding: 14px 0 90px; }
+.fx-card { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px 14px; position: relative; }
+.fx-card.fx-legacy { background: #f8fafc; }
+.fx-c-av { width: 44px; height: 44px; border-radius: 50%; flex: 0 0 auto; background: var(--bill-navy, #1e3a5f); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 17px; }
+.fx-legacy .fx-c-av { background: #94a3b8; }
+.fx-c-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.fx-c-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 700; color: #1e293b; }
+.fx-c-side i { color: #64748b; font-size: .85em; }
+.fx-c-arr { color: #94a3b8; font-size: .8em; }
+.fx-c-tag { font-size: .7rem; font-weight: 700; background: #e2e8f0; color: #475569; border-radius: 999px; padding: 1px 8px; direction: ltr; }
+.fx-c-amt { font-weight: 800; color: #1e3a5f; direction: rtl; }
+.fx-c-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: .8rem; color: #64748b; }
+.fx-c-pnl { font-weight: 800; }
+.fx-c-pnl.fx-gain { color: #059669; }
+.fx-c-pnl.fx-loss { color: #dc2626; }
+.fx-card .product-card-actions { position: relative; flex: 0 0 auto; }
+.fx-empty { text-align: center; color: #94a3b8; padding: 40px 10px; }
+.fx-empty i { font-size: 2rem; display: block; margin-bottom: 10px; }
+.fx-pop { position: absolute; z-index: 40; margin-top: 4px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 28px rgba(15,23,42,.16); padding: 6px; display: flex; flex-direction: column; min-width: 160px; }
+.fx-pop[style*="display: none"] { display: none !important; }
+.fx-pop button { border: none; background: transparent; text-align: right; padding: 8px 10px; border-radius: 7px; font-family: inherit; cursor: pointer; font-size: .88rem; }
+.fx-pop button.on, .fx-pop button:hover { background: #eef2f7; font-weight: 700; }
+.fx-fab-wrap { position: fixed; left: 24px; bottom: 84px; z-index: 900; }
+body.dark-mode .fx-card { background: #1e293b; border-color: #334155; }
+body.dark-mode .fx-card.fx-legacy { background: #172033; }
+body.dark-mode .fx-c-top { color: #e2e8f0; }
+body.dark-mode .fx-c-amt { color: #93c5fd; }
+body.dark-mode .fx-kinds { background: #273449; }
+body.dark-mode .fx-kinds button { color: #cbd5e1; }
+body.dark-mode .fx-ops button { background: #273449; border-color: #334155; color: #e2e8f0; }
+body.dark-mode .fx-pop { background: #1e293b; border-color: #334155; }
+body.dark-mode .fx-pop button { color: #e2e8f0; }
+body.dark-mode .fx-pop button.on, body.dark-mode .fx-pop button:hover { background: #273449; }
+
+/* ═══ ورودی/خروجی تیل در ذخایر (مورد ۱۰) ═══ */
+#product-adj-form .padj-prod input[type="text"] { padding: 14px 2px !important; }
+#product-adj-form .padj-add {
+    flex: 0 0 auto; width: 32px; height: 32px; border-radius: 8px; border: 1px dashed var(--bill-line, #cbd5e1);
+    background: transparent; color: var(--bill-navy, #1e3a5f); cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+#product-adj-form .padj-add:hover { background: #f1f5f9; }
+#product-adj-form .padj-unit { flex: 0 0 auto; color: #64748b; font-size: .85rem; font-weight: 700; }
+#product-adj-form .padj-hint { font-size: .8rem; color: #64748b; line-height: 1.8; padding: 0 4px; }
+#product-adj-form .padj-hint b { color: var(--bill-navy, #1e3a5f); }
+body.dark-mode #product-adj-form .padj-add:hover { background: #273449; }
+body.dark-mode #product-adj-form .padj-hint { color: #94a3b8; }
+body.dark-mode #product-adj-form .padj-hint b { color: #e2e8f0; }
+
+/* ═══ مورد ۱۴: «اطلاعات بیشتر» (آخرین فیلد) در همهٔ فرم‌های پنجره‌ای — ارتفاع ۴۸px ═══ */
+.section.apx-dlg .bill-more-panel .bill-field-textarea { min-height: 48px; height: 48px; padding: 0 14px; align-items: center; }
+.section.apx-dlg .bill-more-panel .bill-field-textarea textarea { height: 46px; min-height: 46px; max-height: 46px; padding: 12px 2px; resize: none; line-height: 1.5; }
+
+/* ═══ مورد ۱۵: «بیشتر» در فرم شخص (فقط پنجرهٔ دسکتاپ) — لینکِ بسیار کوچک زیرِ شماره تماس ═══ */
+#person-form.apx-dlg .bill-more-toggle {
+    width: auto !important; min-height: 0 !important; height: auto !important; margin: -6px 4px 0 auto !important; padding: 2px 4px !important;
+    border: none !important; background: transparent !important; box-shadow: none !important;
+    font-size: .76rem !important; font-weight: 600 !important; color: #64748b !important; align-self: flex-start;
+    display: inline-flex !important; align-items: center; gap: 4px; justify-content: flex-start;
+}
+#person-form.apx-dlg .bill-more-toggle i { font-size: .7rem !important; }
+#person-form.apx-dlg .bill-more-toggle:hover { color: var(--bill-navy, #1e3a5f) !important; text-decoration: underline; }
+#person-form.apx-dlg .bill-more-toggle:has(+ .bill-more-panel.open) { display: none !important; }
+#person-form.apx-dlg .product-grid:not(:has(.bill-field:not(.apx-hide))) { display: none !important; }
+#person-form.apx-dlg .bill-more-panel.open { margin-top: 0 !important; padding-top: 0 !important; }
+
+/* ═══ مورد ۱۹: دکمه‌های رنگیِ «بدون پیگیری» / «آزاد» و تیکِ «پر کردن با بیلانس» ═══ */
+.apx-rp-modes { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; flex-wrap: wrap; }
+.apx-rp-mode { padding: 6px 10px; border-radius: 999px; border: 1.5px solid currentColor; background: transparent; font-size: .76rem !important; transition: background .15s, color .15s; }
+.apx-rp-mode input[type="checkbox"] { position: absolute; opacity: 0; width: 1px !important; height: 1px !important; pointer-events: none; }
+.apx-rp-mode .bill-notrack-text { display: inline-flex; align-items: center; gap: 5px; }
+.apx-rp-mode-nt { color: #d97706 !important; }
+.apx-rp-mode-free { color: #0d9488 !important; }
+.apx-rp-mode-nt.is-on { background: #d97706; color: #fff !important; border-color: #d97706; }
+.apx-rp-mode-free.is-on { background: #0d9488; color: #fff !important; border-color: #0d9488; }
+.apx-rp-mode:focus-within { outline: 2px solid rgba(13,148,136,.35); outline-offset: 1px; }
+.bill-inline-iconbtn.apx-rp-tick { background: transparent; color: #94a3b8; font-size: 18px; width: 30px; height: 30px; }
+.bill-inline-iconbtn.apx-rp-tick:hover { background: #f1f5f9; color: var(--bill-navy, #1e3a5f); }
+.bill-inline-iconbtn.apx-rp-tick.is-filled { color: var(--bill-navy, #1e3a5f); background: transparent; }
+.receipt-dest-tab.apx-tab-off { opacity: .4; cursor: not-allowed; }
+body.dark-mode .bill-inline-iconbtn.apx-rp-tick:hover { background: #273449; color: #e2e8f0; }
+body.dark-mode .bill-inline-iconbtn.apx-rp-tick.is-filled { color: #e2e8f0; }
+body.dark-mode .apx-rp-mode-nt.is-on, body.dark-mode .apx-rp-mode-free.is-on { color: #fff !important; }
+
+/* ═══ مورد ۲۰: فیلدهای قراردادِ کارمند در فرمِ شخص ═══ */
+.apx-emp-fields { display: flex; flex-direction: column; gap: 12px; }
+.apx-emp-fields .bill-field select.bill-inline-input { width: 100%; }
+.apx-emp-print { display: flex; justify-content: flex-start; }
+.apx-emp-print-btn { border: 1px dashed var(--bill-line, #cbd5e1); background: transparent; color: var(--bill-navy, #1e3a5f); border-radius: 10px;
+    padding: 7px 14px; font-family: inherit; font-size: .82rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.apx-emp-print-btn:hover { background: #f1f5f9; }
+body.dark-mode .apx-emp-print-btn { color: #e2e8f0; border-color: #334155; }
+body.dark-mode .apx-emp-print-btn:hover { background: #273449; }
+#payment-form.apx-salary-mode .bill-header-bar { background: linear-gradient(90deg, var(--bill-navy, #1e3a5f), #7c4a03); }
+#emp-ot-form .bill-field input[readonly] { color: var(--bill-navy, #1e3a5f); font-weight: 700; }
+
+/* ═══ مورد ۲۶: پنجرهٔ فشرده در صفحه‌های کوتاه ═══ */
+.section.apx-dlg { transform-origin: center center; }
+.section.apx-dlg.apx-dlg-compact .bill-header-bar { padding: 9px 16px !important; }
+.section.apx-dlg.apx-dlg-compact .bill-body { padding: 10px 16px 0; gap: 8px; }
+.section.apx-dlg.apx-dlg-compact .apx-flist, .section.apx-dlg.apx-dlg-compact .apx-emp-fields { gap: 7px; }
+.section.apx-dlg.apx-dlg-compact .bill-field { min-height: 42px; }
+.section.apx-dlg.apx-dlg-compact .bill-field input, .section.apx-dlg.apx-dlg-compact .bill-field select { padding-top: 9px; padding-bottom: 9px; }
+.section.apx-dlg.apx-dlg-compact .product-camera { padding: 0; }
+.section.apx-dlg.apx-dlg-compact .product-camera-btn { width: 64px; height: 46px; }
+.section.apx-dlg.apx-dlg-compact .bill-footer { padding-top: 8px; padding-bottom: 10px; }
+
+/* ═══ مورد ۳۱: برگشت از فروش/خرید و سفارشات — همان طراحیِ کارتیِ لیستِ فروش‌ها (کپیِ قواعدِ #sales-list) ═══ */
+/* ============================================================
+   لیست کارتی فروش‌ها — دقیقاً هماهنگ با لیست اشخاص/اجناس (مطابق تصویر)
+   کارت‌ها کمی کوتاه‌تر و با فاصلهٔ کمتر از دو لیست دیگر.
+   ============================================================ */
+/* هدر سرمه‌ای (مثل اشخاص/اجناس) */
+#sales-returns-list .list-header-filter {
+    background: #1e3a5f !important;
+    border-bottom: none !important;
+    padding: 14px 30px;
+    margin-left: -30px !important;
+    margin-right: -30px !important;
+    gap: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.12);
+}
+#sales-returns-list .section-title-in-filter { color: #fff; font-size: 1.15rem; font-weight: 800; }
+#sales-returns-list .section-title-in-filter .btn-back-header {
+    background: rgba(255,255,255,.14) !important; border: none !important; box-shadow: none !important;
+}
+#sales-returns-list .section-title-in-filter .btn-back-header:hover {
+    background: rgba(255,255,255,.26) !important; transform: none !important;
+}
+#sales-returns-list .section-title-in-filter .btn-back-header i { color: #fff !important; }
+#sales-returns-list .filter-icon-btn {
+    background: rgba(255,255,255,.14); border: none; color: #fff;
+    width: 38px; height: 38px; border-radius: 9px; cursor: pointer; font-size: 17px;
+    display: inline-flex; align-items: center; justify-content: center; transition: background .15s;
+}
+#sales-returns-list .filter-icon-btn:hover { background: rgba(255,255,255,.26); }
+#sales-returns-list #global-search-sales-returns-list { background: #fff; border: 1px solid #fff; color: #1e293b; }
+#sales-returns-list #global-search-sales-returns-list::placeholder { color: #94a3b8; }
+
+/* کانتینر کارتی */
+.sales-cards-container {
+    border: none !important; background: transparent !important; box-shadow: none !important;
+    border-radius: 0 !important; overflow: visible !important; margin-top: 10px; padding: 2px;
+}
+.sales-cards-table { border-collapse: separate; border-spacing: 0; width: 100%; background: transparent; display: block; }
+.sales-cards-table .sales-cards-thead { display: none !important; }
+.sales-cards-table tbody { display: block !important; }
+.sales-card-hidden-cell { display: none !important; }
+.sales-card-row { display: block !important; height: auto !important; max-height: none !important; }
+.sales-card-cell {
+    display: block !important; height: auto !important; max-height: none !important; overflow: visible !important;
+    border: none !important; padding: 0 !important;
+    margin: 0 0 8px 0 !important;   /* فاصلهٔ کمتر بین کارت‌ها نسبت به اشخاص/اجناس */
+}
+.sales-card {
+    display: grid;
+    grid-template-columns: 1.5fr 1.6fr 1fr 1.15fr auto;
+    align-items: center;
+    gap: 14px;
+    background: #fff;
+    border: 1px solid var(--bill-line, #d8dee9);
+    border-radius: 12px;
+    padding: 12px 20px;            /* کارت کوتاه‌تر از اشخاص/اجناس */
+    direction: rtl;
+    box-shadow: 0 2px 8px rgba(15,23,42,.06);
+    height: auto !important; min-height: 0 !important; max-height: none !important;
+    overflow: visible !important; box-sizing: border-box;
+}
+.sales-card-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+/* B#3/B#4 — چیدمانِ کارت‌های «لیستِ معاملاتِ فرد» و «ورودی/خروجی جنس» (هر دو ptx-sales-card):
+   نامِ معامله کمی فضای بیشتر و خوانا؛ اطلاعات از «قیمت» فاصلهٔ منظم؛ «موجودی/وضعیت» کمی
+   نزدیک‌تر به عملیات. تغییرِ ملایم و نزدیک به مقادیرِ اصلی (لیستِ پرداخت/دریافت دست‌نخورده). */
+.sales-card.ptx-sales-card { grid-template-columns: 1.6fr 1.6fr 1fr 1.05fr auto; gap: 16px; }
+@media (max-width: 760px) {
+    .sales-card.ptx-sales-card { grid-template-columns: 1fr auto; gap: 6px; }
+}
+.sales-card-icon {
+    width: 40px; height: 40px; border-radius: 10px; flex: 0 0 auto;
+    background: #fff; border: 1.6px solid rgba(30,58,95,.38); color: var(--bill-navy, #1e3a5f);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.sales-card-name { font-weight: 700; color: var(--bill-navy-2, #1e293b); font-size: 1.12rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* بل نمبر + زمان (خاکستری، کوچک‌تر — دقیقاً مطابق تصویر) */
+.sales-card-meta { display: flex; align-items: center; gap: 18px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.sales-card-meta-item { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sales-meta-label { color: #64748b; font-weight: 600; font-size: .9rem; }
+.sales-meta-val { color: #94a3b8; font-weight: 500; font-size: .9rem; direction: ltr; display: inline-block; }
+
+/* فروش (مبلغ کل) */
+.sales-card-amount { font-size: 1.02rem; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sales-card-amount span { font-weight: 700; direction: ltr; display: inline-block; color: var(--bill-navy-2, #1e293b); }
+
+/* باقیمانده (همان وضعیت) — قرمز در حالت باقی‌دار، مطابق تصویر */
+.sales-card-remaining { font-size: 1.02rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sales-card-remaining span { font-weight: 700; direction: ltr; display: inline-block; }
+.sales-card-remaining.is-remaining, .sales-card-remaining.is-remaining span { color: #dc2626; }
+.sales-card-remaining.is-overpaid, .sales-card-remaining.is-overpaid span { color: #2563eb; }
+.sales-card-remaining.is-settled, .sales-card-remaining.is-settled span { color: #16a34a; }
+
+/* ناحیهٔ عملیات: نشان وضعیت + سه‌نقطهٔ عمودی (مطابق تصویر) */
+.sales-card-actions { position: relative; justify-self: end; display: inline-flex; align-items: center; gap: 10px; }
+.sales-card-status-badge {
+    width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto;
+    background: var(--bill-navy, #1e3a5f); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
+}
+/* رنگِ آیکنِ تیک بر اساسِ وضعیتِ مالی (فقط رنگ؛ بدونِ تغییر در محاسبات) */
+.sales-card-status-badge.badge-green { background: #16a34a; color: #fff; }
+.sales-card-status-badge.badge-red   { background: #dc2626; color: #fff; }
+.sales-card-status-badge.badge-blue  { background: #2563eb; color: #fff; }
+.sales-card-status-badge.badge-black { background: #1e293b; color: #fff; }
+.sales-card-kebab {
+    width: 38px; height: 38px; border: none; border-radius: 8px; cursor: pointer;
+    background: transparent; color: #475569; font-size: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.sales-card-kebab:hover { background: #f1f5f9; }
+@media (max-width: 760px) {
+    .sales-card { grid-template-columns: 1fr auto; gap: 6px; }
+    .sales-card-meta, .sales-card-amount, .sales-card-remaining { grid-column: 1 / -1; white-space: normal; }
+}
+
+/* کانتینر بدون باکس/اسکرول داخلی + فضای پایین (مثل اشخاص/اجناس) */
+#sales-returns-list .table-container.sales-cards-container {
+    height: auto !important; max-height: none !important; min-height: 0 !important;
+    overflow: visible !important; overflow-x: visible !important; overflow-y: visible !important;
+    border: none !important; background: transparent !important; box-shadow: none !important;
+    border-radius: 0 !important; margin-top: 10px !important; padding: 2px 2px 160px 2px !important;
+}
+/* رفع پرش دکمهٔ شناور (انیمیشن فقط opacity) */
+#sales-returns-list.section { animation: listFadeOpacityOnly 0.3s ease-out !important; }
+#sales-returns-list .person-fab-add {
+    position: fixed !important; bottom: 90px !important; left: 20px !important;
+    z-index: 1100 !important; animation: none !important;
+}
+/* رفع جستجو/فیلتر: سطرهای دارای display:none واقعاً پنهان شوند و بقیه block بمانند */
+#sales-returns-list .sales-card-row { display: block !important; }
+#sales-returns-list .sales-card-row[style*="display: none"],
+#sales-returns-list .sales-card-row[style*="display:none"] { display: none !important; }
+
+
+/* ============================================================
+   لیست کارتی فروش‌ها — دقیقاً هماهنگ با لیست اشخاص/اجناس (مطابق تصویر)
+   کارت‌ها کمی کوتاه‌تر و با فاصلهٔ کمتر از دو لیست دیگر.
+   ============================================================ */
+/* هدر سرمه‌ای (مثل اشخاص/اجناس) */
+#purchase-returns-list .list-header-filter {
+    background: #1e3a5f !important;
+    border-bottom: none !important;
+    padding: 14px 30px;
+    margin-left: -30px !important;
+    margin-right: -30px !important;
+    gap: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.12);
+}
+#purchase-returns-list .section-title-in-filter { color: #fff; font-size: 1.15rem; font-weight: 800; }
+#purchase-returns-list .section-title-in-filter .btn-back-header {
+    background: rgba(255,255,255,.14) !important; border: none !important; box-shadow: none !important;
+}
+#purchase-returns-list .section-title-in-filter .btn-back-header:hover {
+    background: rgba(255,255,255,.26) !important; transform: none !important;
+}
+#purchase-returns-list .section-title-in-filter .btn-back-header i { color: #fff !important; }
+#purchase-returns-list .filter-icon-btn {
+    background: rgba(255,255,255,.14); border: none; color: #fff;
+    width: 38px; height: 38px; border-radius: 9px; cursor: pointer; font-size: 17px;
+    display: inline-flex; align-items: center; justify-content: center; transition: background .15s;
+}
+#purchase-returns-list .filter-icon-btn:hover { background: rgba(255,255,255,.26); }
+#purchase-returns-list #global-search-purchase-returns-list { background: #fff; border: 1px solid #fff; color: #1e293b; }
+#purchase-returns-list #global-search-purchase-returns-list::placeholder { color: #94a3b8; }
+
+/* کانتینر کارتی */
+.sales-cards-container {
+    border: none !important; background: transparent !important; box-shadow: none !important;
+    border-radius: 0 !important; overflow: visible !important; margin-top: 10px; padding: 2px;
+}
+.sales-cards-table { border-collapse: separate; border-spacing: 0; width: 100%; background: transparent; display: block; }
+.sales-cards-table .sales-cards-thead { display: none !important; }
+.sales-cards-table tbody { display: block !important; }
+.sales-card-hidden-cell { display: none !important; }
+.sales-card-row { display: block !important; height: auto !important; max-height: none !important; }
+.sales-card-cell {
+    display: block !important; height: auto !important; max-height: none !important; overflow: visible !important;
+    border: none !important; padding: 0 !important;
+    margin: 0 0 8px 0 !important;   /* فاصلهٔ کمتر بین کارت‌ها نسبت به اشخاص/اجناس */
+}
+.sales-card {
+    display: grid;
+    grid-template-columns: 1.5fr 1.6fr 1fr 1.15fr auto;
+    align-items: center;
+    gap: 14px;
+    background: #fff;
+    border: 1px solid var(--bill-line, #d8dee9);
+    border-radius: 12px;
+    padding: 12px 20px;            /* کارت کوتاه‌تر از اشخاص/اجناس */
+    direction: rtl;
+    box-shadow: 0 2px 8px rgba(15,23,42,.06);
+    height: auto !important; min-height: 0 !important; max-height: none !important;
+    overflow: visible !important; box-sizing: border-box;
+}
+.sales-card-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+/* B#3/B#4 — چیدمانِ کارت‌های «لیستِ معاملاتِ فرد» و «ورودی/خروجی جنس» (هر دو ptx-sales-card):
+   نامِ معامله کمی فضای بیشتر و خوانا؛ اطلاعات از «قیمت» فاصلهٔ منظم؛ «موجودی/وضعیت» کمی
+   نزدیک‌تر به عملیات. تغییرِ ملایم و نزدیک به مقادیرِ اصلی (لیستِ پرداخت/دریافت دست‌نخورده). */
+.sales-card.ptx-sales-card { grid-template-columns: 1.6fr 1.6fr 1fr 1.05fr auto; gap: 16px; }
+@media (max-width: 760px) {
+    .sales-card.ptx-sales-card { grid-template-columns: 1fr auto; gap: 6px; }
+}
+.sales-card-icon {
+    width: 40px; height: 40px; border-radius: 10px; flex: 0 0 auto;
+    background: #fff; border: 1.6px solid rgba(30,58,95,.38); color: var(--bill-navy, #1e3a5f);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.sales-card-name { font-weight: 700; color: var(--bill-navy-2, #1e293b); font-size: 1.12rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* بل نمبر + زمان (خاکستری، کوچک‌تر — دقیقاً مطابق تصویر) */
+.sales-card-meta { display: flex; align-items: center; gap: 18px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.sales-card-meta-item { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sales-meta-label { color: #64748b; font-weight: 600; font-size: .9rem; }
+.sales-meta-val { color: #94a3b8; font-weight: 500; font-size: .9rem; direction: ltr; display: inline-block; }
+
+/* فروش (مبلغ کل) */
+.sales-card-amount { font-size: 1.02rem; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sales-card-amount span { font-weight: 700; direction: ltr; display: inline-block; color: var(--bill-navy-2, #1e293b); }
+
+/* باقیمانده (همان وضعیت) — قرمز در حالت باقی‌دار، مطابق تصویر */
+.sales-card-remaining { font-size: 1.02rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sales-card-remaining span { font-weight: 700; direction: ltr; display: inline-block; }
+.sales-card-remaining.is-remaining, .sales-card-remaining.is-remaining span { color: #dc2626; }
+.sales-card-remaining.is-overpaid, .sales-card-remaining.is-overpaid span { color: #2563eb; }
+.sales-card-remaining.is-settled, .sales-card-remaining.is-settled span { color: #16a34a; }
+
+/* ناحیهٔ عملیات: نشان وضعیت + سه‌نقطهٔ عمودی (مطابق تصویر) */
+.sales-card-actions { position: relative; justify-self: end; display: inline-flex; align-items: center; gap: 10px; }
+.sales-card-status-badge {
+    width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto;
+    background: var(--bill-navy, #1e3a5f); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
+}
+/* رنگِ آیکنِ تیک بر اساسِ وضعیتِ مالی (فقط رنگ؛ بدونِ تغییر در محاسبات) */
+.sales-card-status-badge.badge-green { background: #16a34a; color: #fff; }
+.sales-card-status-badge.badge-red   { background: #dc2626; color: #fff; }
+.sales-card-status-badge.badge-blue  { background: #2563eb; color: #fff; }
+.sales-card-status-badge.badge-black { background: #1e293b; color: #fff; }
+.sales-card-kebab {
+    width: 38px; height: 38px; border: none; border-radius: 8px; cursor: pointer;
+    background: transparent; color: #475569; font-size: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.sales-card-kebab:hover { background: #f1f5f9; }
+@media (max-width: 760px) {
+    .sales-card { grid-template-columns: 1fr auto; gap: 6px; }
+    .sales-card-meta, .sales-card-amount, .sales-card-remaining { grid-column: 1 / -1; white-space: normal; }
+}
+
+/* کانتینر بدون باکس/اسکرول داخلی + فضای پایین (مثل اشخاص/اجناس) */
+#purchase-returns-list .table-container.sales-cards-container {
+    height: auto !important; max-height: none !important; min-height: 0 !important;
+    overflow: visible !important; overflow-x: visible !important; overflow-y: visible !important;
+    border: none !important; background: transparent !important; box-shadow: none !important;
+    border-radius: 0 !important; margin-top: 10px !important; padding: 2px 2px 160px 2px !important;
+}
+/* رفع پرش دکمهٔ شناور (انیمیشن فقط opacity) */
+#purchase-returns-list.section { animation: listFadeOpacityOnly 0.3s ease-out !important; }
+#purchase-returns-list .person-fab-add {
+    position: fixed !important; bottom: 90px !important; left: 20px !important;
+    z-index: 1100 !important; animation: none !important;
+}
+/* رفع جستجو/فیلتر: سطرهای دارای display:none واقعاً پنهان شوند و بقیه block بمانند */
+#purchase-returns-list .sales-card-row { display: block !important; }
+#purchase-returns-list .sales-card-row[style*="display: none"],
+#purchase-returns-list .sales-card-row[style*="display:none"] { display: none !important; }
+
+
+/* ============================================================
+   لیست کارتی فروش‌ها — دقیقاً هماهنگ با لیست اشخاص/اجناس (مطابق تصویر)
+   کارت‌ها کمی کوتاه‌تر و با فاصلهٔ کمتر از دو لیست دیگر.
+   ============================================================ */
+/* هدر سرمه‌ای (مثل اشخاص/اجناس) */
+#proforma-list .list-header-filter {
+    background: #1e3a5f !important;
+    border-bottom: none !important;
+    padding: 14px 30px;
+    margin-left: -30px !important;
+    margin-right: -30px !important;
+    gap: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.12);
+}
+#proforma-list .section-title-in-filter { color: #fff; font-size: 1.15rem; font-weight: 800; }
+#proforma-list .section-title-in-filter .btn-back-header {
+    background: rgba(255,255,255,.14) !important; border: none !important; box-shadow: none !important;
+}
+#proforma-list .section-title-in-filter .btn-back-header:hover {
+    background: rgba(255,255,255,.26) !important; transform: none !important;
+}
+#proforma-list .section-title-in-filter .btn-back-header i { color: #fff !important; }
+#proforma-list .filter-icon-btn {
+    background: rgba(255,255,255,.14); border: none; color: #fff;
+    width: 38px; height: 38px; border-radius: 9px; cursor: pointer; font-size: 17px;
+    display: inline-flex; align-items: center; justify-content: center; transition: background .15s;
+}
+#proforma-list .filter-icon-btn:hover { background: rgba(255,255,255,.26); }
+#proforma-list #global-search-proforma-list { background: #fff; border: 1px solid #fff; color: #1e293b; }
+#proforma-list #global-search-proforma-list::placeholder { color: #94a3b8; }
+
+/* کانتینر کارتی */
+.sales-cards-container {
+    border: none !important; background: transparent !important; box-shadow: none !important;
+    border-radius: 0 !important; overflow: visible !important; margin-top: 10px; padding: 2px;
+}
+.sales-cards-table { border-collapse: separate; border-spacing: 0; width: 100%; background: transparent; display: block; }
+.sales-cards-table .sales-cards-thead { display: none !important; }
+.sales-cards-table tbody { display: block !important; }
+.sales-card-hidden-cell { display: none !important; }
+.sales-card-row { display: block !important; height: auto !important; max-height: none !important; }
+.sales-card-cell {
+    display: block !important; height: auto !important; max-height: none !important; overflow: visible !important;
+    border: none !important; padding: 0 !important;
+    margin: 0 0 8px 0 !important;   /* فاصلهٔ کمتر بین کارت‌ها نسبت به اشخاص/اجناس */
+}
+.sales-card {
+    display: grid;
+    grid-template-columns: 1.5fr 1.6fr 1fr 1.15fr auto;
+    align-items: center;
+    gap: 14px;
+    background: #fff;
+    border: 1px solid var(--bill-line, #d8dee9);
+    border-radius: 12px;
+    padding: 12px 20px;            /* کارت کوتاه‌تر از اشخاص/اجناس */
+    direction: rtl;
+    box-shadow: 0 2px 8px rgba(15,23,42,.06);
+    height: auto !important; min-height: 0 !important; max-height: none !important;
+    overflow: visible !important; box-sizing: border-box;
+}
+.sales-card-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+/* B#3/B#4 — چیدمانِ کارت‌های «لیستِ معاملاتِ فرد» و «ورودی/خروجی جنس» (هر دو ptx-sales-card):
+   نامِ معامله کمی فضای بیشتر و خوانا؛ اطلاعات از «قیمت» فاصلهٔ منظم؛ «موجودی/وضعیت» کمی
+   نزدیک‌تر به عملیات. تغییرِ ملایم و نزدیک به مقادیرِ اصلی (لیستِ پرداخت/دریافت دست‌نخورده). */
+.sales-card.ptx-sales-card { grid-template-columns: 1.6fr 1.6fr 1fr 1.05fr auto; gap: 16px; }
+@media (max-width: 760px) {
+    .sales-card.ptx-sales-card { grid-template-columns: 1fr auto; gap: 6px; }
+}
+.sales-card-icon {
+    width: 40px; height: 40px; border-radius: 10px; flex: 0 0 auto;
+    background: #fff; border: 1.6px solid rgba(30,58,95,.38); color: var(--bill-navy, #1e3a5f);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.sales-card-name { font-weight: 700; color: var(--bill-navy-2, #1e293b); font-size: 1.12rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* بل نمبر + زمان (خاکستری، کوچک‌تر — دقیقاً مطابق تصویر) */
+.sales-card-meta { display: flex; align-items: center; gap: 18px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.sales-card-meta-item { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sales-meta-label { color: #64748b; font-weight: 600; font-size: .9rem; }
+.sales-meta-val { color: #94a3b8; font-weight: 500; font-size: .9rem; direction: ltr; display: inline-block; }
+
+/* فروش (مبلغ کل) */
+.sales-card-amount { font-size: 1.02rem; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sales-card-amount span { font-weight: 700; direction: ltr; display: inline-block; color: var(--bill-navy-2, #1e293b); }
+
+/* باقیمانده (همان وضعیت) — قرمز در حالت باقی‌دار، مطابق تصویر */
+.sales-card-remaining { font-size: 1.02rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sales-card-remaining span { font-weight: 700; direction: ltr; display: inline-block; }
+.sales-card-remaining.is-remaining, .sales-card-remaining.is-remaining span { color: #dc2626; }
+.sales-card-remaining.is-overpaid, .sales-card-remaining.is-overpaid span { color: #2563eb; }
+.sales-card-remaining.is-settled, .sales-card-remaining.is-settled span { color: #16a34a; }
+
+/* ناحیهٔ عملیات: نشان وضعیت + سه‌نقطهٔ عمودی (مطابق تصویر) */
+.sales-card-actions { position: relative; justify-self: end; display: inline-flex; align-items: center; gap: 10px; }
+.sales-card-status-badge {
+    width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto;
+    background: var(--bill-navy, #1e3a5f); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
+}
+/* رنگِ آیکنِ تیک بر اساسِ وضعیتِ مالی (فقط رنگ؛ بدونِ تغییر در محاسبات) */
+.sales-card-status-badge.badge-green { background: #16a34a; color: #fff; }
+.sales-card-status-badge.badge-red   { background: #dc2626; color: #fff; }
+.sales-card-status-badge.badge-blue  { background: #2563eb; color: #fff; }
+.sales-card-status-badge.badge-black { background: #1e293b; color: #fff; }
+.sales-card-kebab {
+    width: 38px; height: 38px; border: none; border-radius: 8px; cursor: pointer;
+    background: transparent; color: #475569; font-size: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.sales-card-kebab:hover { background: #f1f5f9; }
+@media (max-width: 760px) {
+    .sales-card { grid-template-columns: 1fr auto; gap: 6px; }
+    .sales-card-meta, .sales-card-amount, .sales-card-remaining { grid-column: 1 / -1; white-space: normal; }
+}
+
+/* کانتینر بدون باکس/اسکرول داخلی + فضای پایین (مثل اشخاص/اجناس) */
+#proforma-list .table-container.sales-cards-container {
+    height: auto !important; max-height: none !important; min-height: 0 !important;
+    overflow: visible !important; overflow-x: visible !important; overflow-y: visible !important;
+    border: none !important; background: transparent !important; box-shadow: none !important;
+    border-radius: 0 !important; margin-top: 10px !important; padding: 2px 2px 160px 2px !important;
+}
+/* رفع پرش دکمهٔ شناور (انیمیشن فقط opacity) */
+#proforma-list.section { animation: listFadeOpacityOnly 0.3s ease-out !important; }
+#proforma-list .person-fab-add {
+    position: fixed !important; bottom: 90px !important; left: 20px !important;
+    z-index: 1100 !important; animation: none !important;
+}
+/* رفع جستجو/فیلتر: سطرهای دارای display:none واقعاً پنهان شوند و بقیه block بمانند */
+#proforma-list .sales-card-row { display: block !important; }
+#proforma-list .sales-card-row[style*="display: none"],
+#proforma-list .sales-card-row[style*="display:none"] { display: none !important; }
+
+
+.apx-rl-row .apx-rl-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .78rem; font-weight: 700; background: #eef2f7; color: #475569; }
+.apx-rl-row .apx-rl-badge.is-settled { background: #dcfce7; color: #15803d; }
+.apx-rl-row .apx-rl-badge.is-overpaid { background: #fef3c7; color: #b45309; }
+.apx-rl-row .apx-rl-badge.is-remaining { background: #fee2e2; color: #b91c1c; }
+body.dark-mode .apx-rl-row .apx-rl-badge { background: #273449; color: #e2e8f0; }
