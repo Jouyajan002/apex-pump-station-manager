@@ -48,6 +48,8 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
 ] }
 windows-collections = "0.3"
+# چاپِ سیستمی (hb_print.rs): ICoreWebView2_16::ShowPrintUI — همان نسخه‌ای که wry/Tauri 2.12 در Cargo.lock می‌آورد
+webview2-com = "0.39"
 
 # بیلدِ کم‌حجم.
 # نکته: عمداً "thin" LTO انتخاب شده و نه fat LTO. با fat LTO حجمِ نهایی تقریباً همان است
