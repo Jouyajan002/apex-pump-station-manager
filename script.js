@@ -42516,15 +42516,25 @@ function ndUpdCheck() {
             });
             // ویندوز ۷/۸ → بیلدِ win7 ؛ ویندوز ۱۰/۱۱ → بیلدِ عادی (و در نبودِ هرکدام، دیگری)
             var deskPick = _isW7 ? (exe7 || msi7 || exe || msi) : (exe || msi || exe7 || msi7);
-            // در اندروید فایلِ APK، در دسکتاپ فایلِ exe/msi انتخاب می‌شود
-            var pick = ndUpdIsAndroidApp() ? (apk || deskPick) : (deskPick || apk);
-            window.__hbUpdAsset = pick ? pick.browser_download_url : (rel.html_url || '');
+            // در اندروید «فقط» APK، در نسخهٔ نصبیِ ویندوز «فقط» exe/msi.
+            //  ریشهٔ خطای «Unsupported 16-Bit Application»: بیلدِ اندروید زودتر از بیلدِ ویندوز تمام می‌شود
+            //  و Release مدتی فقط APK دارد؛ پیش‌تر در نبودِ exe همان APK انتخاب و با پسوندِ .exe اجرا می‌شد.
+            //  حالا اگر فایلِ مناسبِ همین دستگاه نبود، دکمهٔ نصب نشان داده نمی‌شود و پیامِ «هنوز آماده نیست» می‌آید.
+            var _isAnd = ndUpdIsAndroidApp(), _isDesk = !_isAnd && ndUpdIsDesktopApp();
+            var pick = _isAnd ? apk : (_isDesk ? deskPick : (deskPick || apk));
+            window.__hbUpdAsset = pick ? pick.browser_download_url : ((_isAnd || _isDesk) ? '' : (rel.html_url || ''));
+            if (ndUpdCmp(tag, cur) > 0 && !pick && (_isAnd || _isDesk)) {
+                ndUpdSetStatus('<b>نسخهٔ ' + ndEsc(tag) + ' منتشر شده است</b><br>' +
+                    'ولی فایلِ نصبِ ' + (_isAnd ? 'اندروید (APK)' : 'ویندوز') + ' هنوز در انتشار قرار نگرفته (ساختِ آن هنوز تمام نشده است). ' +
+                    'چند دقیقه بعد دوباره «بررسی» را بزنید.', 'warn');
+                return;
+            }
             if (ndUpdCmp(tag, cur) > 0) {
                 ndUpdSetStatus(
                     '<b>نسخهٔ تازه موجود است: ' + ndEsc(tag) + '</b><br>' +
                     (pick ? ('فایلِ نصب: ' + ndEsc(pick.name)) : 'فایلِ نصبی در این انتشار پیدا نشد؛ صفحهٔ انتشار باز می‌شود.') +
                     '<div style="margin-top:10px;"><button class="ssb-btn ssb-btn-primary" onclick="ndUpdDownload()">' +
-                    '<i class="fas fa-download"></i> دانلود و نصب نسخهٔ ' + ndEsc(tag) + '</button></div>',
+                    '<i class="fas fa-download"></i> ' + (_isDesk ? 'بروزرسانی به نسخهٔ ' : 'دانلود و نصب نسخهٔ ') + ndEsc(tag) + '</button></div>',
                     'ok');
             } else {
                 ndUpdSetStatus('برنامهٔ شما به‌روز است. (نسخهٔ نصب‌شده: ' + ndEsc(cur) + ')', 'ok');
@@ -42597,8 +42607,8 @@ function ndUpdRunInAppInstall(url) {
         'display:flex;align-items:center;justify-content:center;direction:rtl;font-family:inherit;';
     ov.innerHTML =
         '<div class="nd-upd-dl-card" style="background:#fff;border-radius:16px;padding:26px 28px;width:380px;max-width:92vw;box-shadow:0 18px 50px rgba(0,0,0,.35);text-align:center;">' +
-          '<div style="font-size:16px;font-weight:800;color:#1e3a5f;margin-bottom:6px;"><i class="fas fa-cloud-arrow-down"></i> در حال دانلودِ بروزرسانی…</div>' +
-          '<div style="font-size:12.5px;color:#64748b;margin-bottom:16px;">لطفاً صبر کنید؛ پس از پایان، برنامه بسته می‌شود و نصب به‌صورتِ خودکار آغاز می‌گردد.</div>' +
+          '<div style="font-size:16px;font-weight:800;color:#1e3a5f;margin-bottom:6px;"><i class="fas fa-cloud-arrow-down"></i> در حال آماده‌سازیِ بروزرسانی…</div>' +
+          '<div style="font-size:12.5px;color:#64748b;margin-bottom:16px;">لطفاً صبر کنید؛ پس از پایان، برنامه بسته می‌شود، نسخهٔ تازه بدونِ هیچ پرسشی نصب می‌شود و برنامه خودش دوباره باز می‌گردد.</div>' +
           '<div style="height:12px;background:#e2e8f0;border-radius:999px;overflow:hidden;">' +
             '<div id="nd-upd-dl-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#1de9b6,#00bfa5);transition:width .2s ease;"></div>' +
           '</div>' +
@@ -42636,16 +42646,21 @@ function ndUpdRunInAppInstall(url) {
     __jouyaTauriInvoke('hb_download_and_run', { url: url })
         .then(function () {
             setPct(100);
-            note('دانلود کامل شد — برنامه بسته می‌شود و نصب آغاز می‌گردد…');
+            note('آماده شد — برنامه بسته می‌شود و چند ثانیه بعد با نسخهٔ تازه دوباره باز می‌شود…');
             // app.exit از سمتِ Rust می‌آید؛ اگر چند ثانیه نشد، پیام می‌دهیم.
-            setTimeout(function () { note('اگر نصب آغاز نشد، برنامه را ببندید و فایلِ دانلودشده را اجرا کنید.'); }, 6000);
+            setTimeout(function () { note('اگر برنامه بسته نشد، آن را ببندید؛ نصب خودکار انجام و برنامه دوباره باز می‌شود.'); }, 6000);
         })
         .catch(function (err) {
             cleanup(); closeOv();
             // درخواستِ کاربر: هیچ لینک/مرورگری باز نشود. کلِ روندِ دانلود و نصب درون‌برنامه‌ای
             // است؛ در صورتِ خطا فقط پیام داده می‌شود تا دوباره تلاش کند.
-            ndUpdSetStatus('دانلودِ بروزرسانی ناموفق بود. لطفاً اتصالِ اینترنت را بررسی کنید و ' +
-                'دوباره «دانلود و نصب» را بزنید.' +
+            var _em = String((err && err.message) || err || '');
+            if (_em.indexOf('not-a-windows-installer') >= 0) {
+                ndUpdSetStatus('فایلِ نصبِ ویندوز در این انتشار پیدا نشد (ساختِ آن هنوز تمام نشده است). چند دقیقه بعد دوباره «بررسی» را بزنید.', 'warn');
+                return;
+            }
+            ndUpdSetStatus('بروزرسانی ناموفق بود. لطفاً اتصالِ اینترنت را بررسی کنید و ' +
+                'دوباره «بروزرسانی» را بزنید.' +
                 '<br><small>' + ndEsc(String((err && err.message) || err || '')) + '</small>', 'err');
         });
 }
@@ -46054,7 +46069,7 @@ function _apexDlgApply() {
             if (pt && pt.parentElement) pt.parentElement.style.display = 'block';
         }
     } catch (e) {}
-    try { _apexDlgFitSoon(); } catch (e) {}   // مورد ۲۶
+    try { _apexDlgFitAll(); } catch (e) {}    // مورد ۲۶ — همان لحظه (بدونِ پرشِ اندازه پس از نمایش)
 }
 /** کلیک بیرونِ پنجره ⇒ همان دیالوگِ موجودِ «خروج از فرم» (از مسیرِ دکمهٔ برگشتِ خودِ فرم) */
 function _apexDlgAskExit() {
@@ -47635,6 +47650,9 @@ function _apexDlgUnfit(el) {
 }
 function _apexDlgFitOne(el) {
     if (!el || !el.classList.contains('apx-dlg')) return;
+    // در حینِ جا انداختن، transitionِ فیلدها خاموش است تا اندازه یک‌جا (بدونِ کوچک‌شدنِ تدریجی) اعمال شود
+    el.classList.add('apx-dlg-fitting');
+    requestAnimationFrame(function () { requestAnimationFrame(function () { el.classList.remove('apx-dlg-fitting'); }); });
     _apexDlgUnfit(el);
     var avail = (window.innerHeight || 800) - 32;
     el.style.maxHeight = 'none';

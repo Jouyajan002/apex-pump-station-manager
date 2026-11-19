@@ -645,7 +645,7 @@
             </style>
             <div class="auth-card">
                 <div class="auth-header">
-                    <div class="auth-logo"><i class="fas fa-store-alt"></i></div>
+                    <div class="auth-logo apx-brand-logo"><img src="assets/icons/icon-512.png" alt="APEX Pump Station Manager" draggable="false"></div>
                     <h1 class="auth-title">APEX Pump Station Manager</h1>
                     <p style="margin:4px 0 0;font-size:.86rem;color:#64748b;font-weight:600;">سیستم مدیریت پمپ استیشن</p>
                 </div>
@@ -892,6 +892,8 @@
         _justRegistered: null,
 
         switchTab(tabName) {
+            // اپِ اندروید و موبایل فقط «ورود» دارند؛ هیچ مسیری (مثلاً دکمهٔ نسخهٔ آزمایشی) فرمِ ساختِ اکانت را باز نمی‌کند
+            if (tabName === 'register' && _apxLoginOnlyDevice()) tabName = 'login';
             document.querySelectorAll('.auth-tab').forEach(t => {
                 t.classList.toggle('active', t.dataset.tab === tabName);
             });
@@ -1079,7 +1081,7 @@
             // دستگاه خالی است (دستگاهِ جدید، یا کاربرِ قدیمیِ گیت‌هابی که یک‌بار قبلاً
             // مسیرِ ابری برایش کامل شده و اکنون فقط باید دوباره وارد شود).
             if (!window.JouyaAuth || typeof window.JouyaAuth.login !== 'function') {
-                AuthUI.showAlert('warning', 'هیچ اکانتی روی این دستگاه ساخته نشده. لطفاً ابتدا ثبت‌نام کنید.');
+                AuthUI.showAlert('warning', _apxLoginOnlyDevice() ? 'این حساب پیدا نشد. ایمیل و رمزِ همان اکانتی را وارد کنید که در نسخهٔ ویندوز یا وبِ دسکتاپ ساخته‌اید.' : 'هیچ اکانتی روی این دستگاه ساخته نشده. لطفاً ابتدا ثبت‌نام کنید.');
                 return;
             }
 
@@ -1093,7 +1095,7 @@
                 } else if (cloudFind.reason === 'invalid-credentials') {
                     showFieldErr('auth-login-password', 'ایمیل یا رمز عبور اشتباه است، یا این اکانت هنوز به سیستمِ ابری منتقل نشده. برای بازیابیِ اکانتِ قدیمی با کدِ لایسنس، با پشتیبانی تماس بگیرید.');
                 } else {
-                    AuthUI.showAlert('warning', 'هیچ اکانتی روی این دستگاه ساخته نشده. لطفاً ابتدا ثبت‌نام کنید.');
+                    AuthUI.showAlert('warning', _apxLoginOnlyDevice() ? 'این حساب پیدا نشد. ایمیل و رمزِ همان اکانتی را وارد کنید که در نسخهٔ ویندوز یا وبِ دسکتاپ ساخته‌اید.' : 'هیچ اکانتی روی این دستگاه ساخته نشده. لطفاً ابتدا ثبت‌نام کنید.');
                 }
                 return;
             }
@@ -2007,6 +2009,8 @@
     function closeAuthAndStart() {
         // ✅ اطمینان از پاک شدن فلگ logout (در صورت ورود از مسیرهای مختلف)
         AuthDB.clearLogoutFlag();
+        // اندروید: ورود روی همین نصب انجام شد (مورد ۲)
+        _apxMarkAndroidLogin();
 
         const ov = document.getElementById('auth-screen-overlay');
         if (ov) {
@@ -2392,8 +2396,8 @@
                 <button class="backup-modal-close" onclick="document.getElementById('about-modal-overlay').remove()">
                     <i class="fas fa-times"></i>
                 </button>
-                <div class="backup-modal-icon" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);">
-                    <i class="fas fa-store-alt"></i>
+                <div class="backup-modal-icon apx-brand-logo">
+                    <img src="assets/icons/icon-512.png" alt="APEX Pump Station Manager" draggable="false">
                 </div>
                 <h2 class="backup-modal-title">درباره ما</h2>
                 <div id="about-content" style="text-align:right;line-height:2;color:var(--text-main,#334155);font-size:14px;padding:0 4px 8px;">
@@ -2402,10 +2406,28 @@
                     <p> این سیستم امکانات متنوعی مانند فروش فوری، مدیریت مشتریان و طلبات، ثبت هزینه‌ها، مدیریت صندوق، گزارش‌گیری دقیق، کنترل موجودی ذخایر، ثبت ورود و خروج ذخایر و ذخیره‌سازی امن اطلاعات را در اختیار کاربران قرار می‌دهد.</p>
                     <p>هدف ما ارائه یک سیستم قابل اعتماد، سریع و کاربردی برای مدیریت بهتر امور مالی و تجاری شما است.</p>
                 </div>
+                <div id="about-build-info" style="text-align:center;font-size:12.5px;color:#64748b;margin:2px 0 6px;direction:rtl;"></div>
                 <button class="backup-close-btn" onclick="document.getElementById('about-modal-overlay').remove()" style="width:100%;margin-top:8px;">بستن</button>
             </div>
         `;
         document.body.appendChild(modal);
+        // نسخه و «نوعِ نسخه» — تا معلوم باشد برنامهٔ باز، اپلیکیشنِ اندروید (APK) است یا وب‌اپِ نصب‌شده از مرورگر
+        try {
+            var kind = 'وب';
+            var isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__ || window.__JOUYA_RUNTIME === 'tauri');
+            var standalone = false;
+            try { standalone = !!((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone); } catch (e) {}
+            if (_apxIsAndroidApp()) kind = 'اپلیکیشنِ اندروید (APK)';
+            else if (isTauri) kind = 'نسخهٔ ویندوز';
+            else if (standalone) kind = 'وب‌اپِ نصب‌شده از مرورگر (PWA)';
+            var put = function (v) {
+                var el = document.getElementById('about-build-info');
+                if (el) el.textContent = (v ? 'نسخهٔ ' + v + ' — ' : '') + kind;
+            };
+            put('');
+            fetch('version.json', { cache: 'no-store' }).then(function (r) { return r.json(); })
+                .then(function (j) { put(j && j.version ? String(j.version) : ''); }).catch(function () {});
+        } catch (e) {}
     };
 
     // خروج از حساب — منطق کامل
@@ -3081,10 +3103,50 @@
     // =========================================================================
     // ۱۴. Bootstrap
     // =========================================================================
+    // ── (نوامبر ۱۸ — مورد ۲) اپلیکیشنِ اندروید: «مرحلهٔ ورود» ─────────────────────────
+    //  نسخهٔ نصبیِ اندروید (Capacitor) پیش از این، اگر اکانت/لایسنس روی گوشی بود، بدونِ هیچ
+    //  صفحهٔ ورودی مستقیم داشبورد را باز می‌کرد. اکنون ورود باید یک‌بار روی همین نصب با همان
+    //  ایمیل و رمزِ اکانتِ کاربر انجام شود؛ پس از ورودِ موفق، نشانِ زیر روی گوشی ذخیره می‌شود و
+    //  باز کردن‌های بعدی (و بروزرسانی‌ها) مثلِ وب و ویندوز تا «خروج از حساب» مستقیم داشبورد است.
+    //  هیچ داده‌ای پاک نمی‌شود: فقط نشانِ «خارج‌شده» گذاشته می‌شود تا صفحهٔ ورود نمایش داده شود.
+    var APX_ANDROID_LOGIN_KEY = 'jouya_android_login_ok';
+    function _apxIsAndroidApp() {
+        try {
+            var C = window.Capacitor;
+            if (C) {
+                var p = (typeof C.getPlatform === 'function') ? C.getPlatform() : (C.platform || '');
+                if (p === 'android') return true;
+            }
+            if (window.__JOUYA_RUNTIME === 'android') return true;
+            if (document.documentElement && document.documentElement.getAttribute('data-jruntime') === 'android') return true;
+        } catch (e) {}
+        return false;
+    }
+    // دستگاهی که فقط «ورود» دارد (ساختِ اکانت ندارد): اپِ اندروید و موبایل (همان مرزِ ۶۰۰px در CSS)
+    function _apxLoginOnlyDevice() {
+        if (_apxIsAndroidApp()) return true;
+        try { if (window.matchMedia && window.matchMedia('(max-width: 600px)').matches) return true; } catch (e) {}
+        return false;
+    }
+    function _apxMarkAndroidLogin() {
+        try { if (_apxIsAndroidApp()) localStorage.setItem(APX_ANDROID_LOGIN_KEY, '1'); } catch (e) {}
+    }
+    try { window.__apxLoginOnlyDevice = _apxLoginOnlyDevice; } catch (e) {}
+
     function bootstrap() {
         const account = AuthDB.getAccount();
         const license = AuthDB.getLicense();
-        const loggedOut = AuthDB.isLoggedOut();
+        let loggedOut = AuthDB.isLoggedOut();
+
+        // اندروید: اگر روی این نصب هنوز ورود انجام نشده → صفحهٔ ورود (داده‌ها دست‌نخورده)
+        if (account && !loggedOut && _apxIsAndroidApp()) {
+            var _okHere = null;
+            try { _okHere = localStorage.getItem(APX_ANDROID_LOGIN_KEY); } catch (e) {}
+            if (_okHere !== '1') {
+                try { AuthDB.logoutSession(); } catch (e) {}
+                loggedOut = true;
+            }
+        }
 
         // «متصل به ابر» = کاربری که با Supabase وارد شده و workspace دارد. برای ماندگاریِ Session
         // کافی است حتی اگر license.code محلی موجود نباشد. کاملاً از localStorage خوانده می‌شود

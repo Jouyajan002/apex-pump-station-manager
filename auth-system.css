@@ -1155,3 +1155,12 @@ body.dark-mode .backup-close-btn {
         padding: 12px 20px;
     }
 }
+
+/* لوگوی تازهٔ برند (پمپ + سند + نمودار) در صفحهٔ ورود، قفلِ لایسنس و «درباره ما» */
+.apx-brand-logo { background: transparent !important; box-shadow: 0 10px 28px rgba(0, 18, 102, .22) !important; padding: 0 !important; overflow: hidden; }
+.apx-brand-logo img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: inherit; }
+
+/* ── (نوامبر ۱۸ — مورد ۲) اپلیکیشنِ اندروید: صفحهٔ ورود فقط «ورود» دارد (هر اندازهٔ صفحه، مثلاً تبلت) ── */
+html[data-jruntime="android"] .auth-tabs { display: none !important; }
+html[data-jruntime="android"] .auth-tab[data-tab="register"] { display: none !important; }
+html[data-jruntime="android"] #auth-panel-register { display: none !important; }

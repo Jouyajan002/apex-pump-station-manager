@@ -229,9 +229,16 @@
             '<span><i class="fas fa-hourglass-half"></i> نسخهٔ آزمایشی — باقی‌مانده: ' + _fmtRemaining(s.remainingMs) + '</span>' +
             '<button id="jouya-demo-exit-btn" type="button" title="خروج از نسخهٔ آزمایشی و ساخت حساب واقعی" ' +
                 'style="background:#fff;color:#1e3a5f;border:none;border-radius:8px;padding:5px 10px;font-family:inherit;font-weight:700;font-size:11.5px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;">' +
-                '<i class="fas fa-user-plus"></i> ساخت حساب / فعال‌سازی</button>';
+                (_loginOnly() ? '<i class="fas fa-sign-in-alt"></i> ورود به حساب</button>' : '<i class="fas fa-user-plus"></i> ساخت حساب / فعال‌سازی</button>');
         var xb = document.getElementById('jouya-demo-exit-btn');
         if (xb) xb.onclick = function () { _exitDemoToRegister(); };
+    }
+
+    // اپِ اندروید و موبایل فقط «ورود» دارند (ساختِ اکانت روی دسکتاپ) — همان تشخیصِ auth-system.js
+    function _loginOnly() {
+        try { if (typeof window.__apxLoginOnlyDevice === 'function') return !!window.__apxLoginOnlyDevice(); } catch (e) {}
+        try { return !!(window.matchMedia && window.matchMedia('(max-width: 600px)').matches); } catch (e) {}
+        return false;
     }
 
     // خروجِ امنِ Demo و رفتن به «ثبت‌نامِ واقعیِ موجود» (بدونِ تغییر نسبت به قبل).
@@ -305,7 +312,7 @@
                 '<p style="margin:0 0 22px;font-size:13.5px;line-height:2.1;color:#cbd5e1;">' + MSG_END + '</p>' +
                 '<button id="jouya-demo-lock-register" type="button" style="background:#2563eb;border:none;color:#fff;border-radius:10px;' +
                     'padding:12px 22px;font-family:inherit;font-weight:700;font-size:14px;cursor:pointer;">' +
-                    '<i class="fas fa-user-plus"></i> ساخت حساب / فعال‌سازی' +
+                    (_loginOnly() ? '<i class="fas fa-sign-in-alt"></i> ورود به حساب' : '<i class="fas fa-user-plus"></i> ساخت حساب / فعال‌سازی') +
                 '</button>' +
             '</div>';
         document.body.appendChild(ov);

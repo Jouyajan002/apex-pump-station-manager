@@ -8,6 +8,19 @@
     <!-- موتورِ حافظهٔ IndexedDB (رفعِ سقفِ ۵ مگابایتیِ localStorage) — بلافاصله بعد از apex-ns.js -->
     <meta name="apex-storage" content="indexeddb">
     <script src="jouya-store.js"></script>
+    <!-- نشانِ «اپلیکیشنِ اندروید» از همان لحظهٔ اول (مستقل از بوتِ اسکریپت‌ها): با این نشان، گزینهٔ
+         «بروزرسانی» در سایدبار حتماً دیده می‌شود و صفحهٔ ورود فقط «ورود» دارد (بدونِ ساختِ اکانت). -->
+    <script>
+    (function () {
+        try {
+            var C = window.Capacitor, p = '';
+            if (C) p = (typeof C.getPlatform === 'function') ? C.getPlatform() : (C.platform || '');
+            if (p === 'android' || window.__JOUYA_RUNTIME === 'android') {
+                if (!document.documentElement.getAttribute('data-jruntime')) document.documentElement.setAttribute('data-jruntime', 'android');
+            }
+        } catch (e) {}
+    })();
+    </script>
     <script>
     /* ═══ نگه‌داشتنِ DOMContentLoaded/load تا پایانِ بوت ═══
        اسکریپت‌های برنامه (type="text/apex-boot") پس از آماده‌شدنِ حافظه اجرا می‌شوند. تا آن
@@ -140,24 +153,25 @@
         html.jouya-fade-loader #jouya-boot-loader { opacity: 0; pointer-events: none; }
         #jouya-boot-loader .jbl-inner { display: flex; flex-direction: column; align-items: center; gap: 18px; }
         #jouya-boot-loader .jbl-logo, #jouya-boot-loader .jbl-logo-fb {
-            width: 88px; height: 88px; border-radius: 22px; object-fit: contain;
-            box-shadow: 0 14px 40px rgba(30, 58, 95, .20);
+            width: 96px; height: 96px; border-radius: 22px; object-fit: contain;
+            box-shadow: 0 14px 40px rgba(0, 18, 102, .18);
         }
         #jouya-boot-loader .jbl-logo-fb {
             display: none; align-items: center; justify-content: center;
-            background: linear-gradient(135deg, #1e3a5f, #274b74); color: #fff; font-size: 40px;
+            background: linear-gradient(135deg, #001266, #0b2190); color: #faac09; font-size: 40px;
         }
-        #jouya-boot-loader .jbl-title { color: #1e3a5f; font-weight: 800; font-size: 1.25rem; letter-spacing: .3px; text-align: center; display: flex; flex-direction: column; align-items: center; }
+        #jouya-boot-loader .jbl-title { color: #001266; font-weight: 800; font-size: 1.25rem; letter-spacing: .3px; text-align: center; display: flex; flex-direction: column; align-items: center; }
         #jouya-boot-loader .jbl-title small { display: block; direction: rtl; text-align: center; font-size: .8rem; font-weight: 600; color: #6b7f9e; margin-top: 3px; letter-spacing: 0; }
         #jouya-boot-loader .jbl-text { color: #64748b; font-weight: 600; font-size: .9rem; }
         #jouya-boot-loader .jbl-spinner {
             width: 42px; height: 42px; border-radius: 50%;
-            border: 4px solid #e2e8f0; border-top-color: #1e3a5f;
+            border: 4px solid #e2e8f0; border-top-color: #faac09;
             animation: jblSpin .8s linear infinite;
         }
         @keyframes jblSpin { to { transform: rotate(360deg); } }
         @media (max-width: 600px) {
-            #jouya-boot-loader .jbl-logo, #jouya-boot-loader .jbl-logo-fb { width: 76px; height: 76px; border-radius: 20px; }
+            /* موبایل/اندروید: لوگو کمی بزرگ‌تر تا واضح دیده شود */
+            #jouya-boot-loader .jbl-logo, #jouya-boot-loader .jbl-logo-fb { width: 112px; height: 112px; border-radius: 26px; }
             #jouya-boot-loader .jbl-title { font-size: 1.12rem; }
             #jouya-boot-loader .jbl-spinner { width: 38px; height: 38px; }
         }
@@ -258,9 +272,9 @@
          با گاردِ بوت در <head> کنترل می‌شود؛ پس از آماده‌شدنِ کامل، نرم محو می‌شود. -->
     <div id="jouya-boot-loader" aria-hidden="true">
         <div class="jbl-inner">
-            <img class="jbl-logo" src="build/icon.ico" alt="APEX Pump Station Manager"
+            <img class="jbl-logo" src="assets/icons/icon-512.png" alt="APEX Pump Station Manager"
                  onerror="this.onerror=null;this.style.display='none';var f=document.getElementById('jbl-logo-fb');if(f)f.style.display='flex';">
-            <div id="jbl-logo-fb" class="jbl-logo-fb"><i class="fas fa-calculator"></i></div>
+            <div id="jbl-logo-fb" class="jbl-logo-fb"><i class="fas fa-gas-pump"></i></div>
             <div class="jbl-title"><span dir="ltr">APEX Pump Station Manager</span><small dir="rtl">سیستم مدیریت پمپ استیشن</small></div>
             <div class="jbl-spinner"></div>
             <div class="jbl-text">در حال پردازش اطلاعات…</div>
@@ -5572,7 +5586,7 @@
         <div class="jlk-card">
             <div class="jlk-form">
                 <div class="jlk-brandwrap">
-                    <div class="jlk-logo"><i class="fas fa-store"></i></div>
+                    <div class="jlk-logo apx-brand-logo"><img src="assets/icons/icon-512.png" alt="APEX Pump Station Manager" draggable="false"></div>
                     <div class="jlk-brand">APEX Pump Station Manager<small>سیستم مدیریت پمپ استیشن</small></div>
                 </div>
                 <h2 class="jlk-title"><i class="fas fa-lock" style="color:#6366f1;margin-inline-end:6px;"></i> ورود به برنامه</h2>

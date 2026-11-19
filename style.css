@@ -11337,3 +11337,15 @@ body.dark-mode .apx-emp-print-btn:hover { background: #273449; }
 .apx-rl-row .apx-rl-badge.is-overpaid { background: #fef3c7; color: #b45309; }
 .apx-rl-row .apx-rl-badge.is-remaining { background: #fee2e2; color: #b91c1c; }
 body.dark-mode .apx-rl-row .apx-rl-badge { background: #273449; color: #e2e8f0; }
+
+/* ═══ پنجرهٔ فرم‌ها: بدونِ انیمیشن، مستقیم در وسطِ صفحه باز شود ═══
+ *  علت: انیمیشنِ عمومیِ ‎.section‎ (fadeIn با translateY) در طولِ ۰٫۴ ثانیه transformِ پنجره
+ *  (translate(-50%,-50%)) را جایگزین می‌کرد؛ پنجره پایین‌وراست ظاهر و سپس یک‌باره به وسط می‌پرید. */
+.section.apx-dlg { animation: none !important; transition: none !important; }
+#apx-dlg-backdrop { animation: none !important; transition: none !important; }
+.section.apx-dlg.apx-dlg-fitting, .section.apx-dlg.apx-dlg-fitting * { transition: none !important; }
+
+/* ── (نوامبر ۱۸ — مورد ۳) گزینهٔ «بروزرسانی» در اپلیکیشنِ اندروید همیشه دیده شود ──────────
+ * نشانِ data-jruntime="android" از <head> در index.html گذاشته می‌شود؛ پس این گزینه دیگر به
+ * زمان‌بندیِ اجرای script.js وابسته نیست. در وب و موبایل‌وب این نشان نیست و رفتار تغییری ندارد. */
+html[data-jruntime="android"] #ssb-item-update { display: flex !important; }
