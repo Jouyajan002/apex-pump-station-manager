@@ -17,8 +17,41 @@
             if (C) p = (typeof C.getPlatform === 'function') ? C.getPlatform() : (C.platform || '');
             if (p === 'android' || window.__JOUYA_RUNTIME === 'android') {
                 if (!document.documentElement.getAttribute('data-jruntime')) document.documentElement.setAttribute('data-jruntime', 'android');
+                _apxAndroidDiag();
             }
         } catch (e) {}
+        // (نوامبر ۲۰) اندروید: WebViewِ اندروید پیامِ «این فیلد را پر کنید» را نشان نمی‌دهد و خطاهای جاوااسکریپت
+        // دیده نمی‌شوند؛ پس اگر «ثبت» به‌خاطرِ فیلدِ نامعتبر یا خطا انجام نشد، علتش روی صفحه نوشته می‌شود.
+        function _apxAndroidDiag() {
+            var lastAct = 0, t0 = Date.now(), shown = 0;
+            var show = function (msg) {
+                if (Date.now() - shown < 1500) return; shown = Date.now();
+                try {
+                    var d = document.createElement('div');
+                    d.setAttribute('role', 'alert');
+                    d.style.cssText = 'position:fixed;left:12px;right:12px;bottom:90px;z-index:2147483000;background:#7f1d1d;color:#fff;padding:12px 14px;border-radius:12px;font-family:inherit;font-weight:600;font-size:14px;line-height:1.6;direction:rtl;text-align:right;box-shadow:0 8px 24px rgba(0,0,0,.3);white-space:pre-wrap;word-break:break-word';
+                    d.textContent = msg;
+                    d.onclick = function () { d.remove(); };
+                    (document.body || document.documentElement).appendChild(d);
+                    setTimeout(function () { try { d.remove(); } catch (e) {} }, 9000);
+                } catch (e) {}
+            };
+            var mark = function () { lastAct = Date.now(); };
+            document.addEventListener('click', mark, true);
+            document.addEventListener('submit', mark, true);
+            document.addEventListener('invalid', function (e) {
+                var el = e.target; if (!el) return;
+                var name = el.getAttribute('placeholder') || el.getAttribute('aria-label') || el.id || '';
+                show('ثبت انجام نشد: فیلدِ «' + name + '» ' + (el.validity && el.validity.valueMissing ? 'خالی است.' : 'درست نیست.'));
+                try { el.focus(); } catch (x) {}
+            }, true);
+            var report = function (m) {
+                if (Date.now() - t0 < 6000 || Date.now() - lastAct > 2500) return;   // فقط خطاهای پس از لمسِ کاربر
+                show('ثبت انجام نشد (خطای برنامه):\n' + String(m || '').slice(0, 220) + '\nلطفاً همین پیام را برای پشتیبانی بفرستید.');
+            };
+            window.addEventListener('error', function (e) { report(e && (e.message || (e.error && e.error.message))); });
+            window.addEventListener('unhandledrejection', function (e) { report(e && e.reason && (e.reason.message || e.reason)); });
+        }
     })();
     </script>
     <script>
@@ -1312,6 +1345,9 @@
                                         <button type="button" class="bill-btn-cancel" onclick="personFormGoBack()">
                                             <i class="fas fa-times"></i> لغو
                                         </button>
+                                        <button type="button" class="bill-btn-print apx-emp-print-foot" id="person-print-btn" onclick="apexEmpPrintContract()">
+                                            <i class="fas fa-print"></i> چاپ
+                                        </button>
                                     </span>
                                 </div>
 
@@ -1322,22 +1358,24 @@
                     <!-- مورد ۲۰: فیلدهای قراردادِ کارمند (با انتخابِ کتگوری «کارمند» در فرم جا می‌گیرند) -->
                     <template id="apx-emp-tpl">
                         <div class="apx-emp-fields" id="apx-emp-fields">
+                            <!-- (نوامبر ۲۰) ترتیب مثلِ APEX Store: وظیفه، نوع قرارداد، شروع | ختم، مقدار معاش -->
+                            <div class="bill-field bill-field-icononly"><i class="fas fa-briefcase bill-field-icon"></i>
+                                <input type="text" id="emp-position" placeholder="وظیفه" autocomplete="off"></div>
                             <div class="bill-field bill-field-icononly"><i class="fas fa-file-contract bill-field-icon"></i>
                                 <select id="emp-contract-type" class="bill-inline-input" onchange="_apexEmpTypeChanged()">
-                                    <option value="">نوع قرارداد</option><option value="ماهوار">ماهوار</option><option value="روزوار">روزوار</option><option value="ساعتوار">ساعتوار</option>
+                                    <option value="">نوع قرار داد (ماهوار، روزوار، ساعتوار)</option><option value="ماهوار">ماهوار</option><option value="روزوار">روزوار</option><option value="ساعتوار">ساعتوار</option>
                                 </select></div>
+                            <div class="apx-emp-dates">
+                                <div class="bill-field bill-field-icononly"><i class="fas fa-calendar-plus bill-field-icon bill-field-icon-btn" role="button" tabindex="0" title="انتخاب تاریخ" onclick="openDualCalendarPicker('emp-start',this)"></i>
+                                    <input type="text" id="emp-start" placeholder="شروع قرار داد" autocomplete="off"></div>
+                                <div class="bill-field bill-field-icononly"><i class="fas fa-calendar-xmark bill-field-icon bill-field-icon-btn" role="button" tabindex="0" title="انتخاب تاریخ" onclick="openDualCalendarPicker('emp-end',this)"></i>
+                                    <input type="text" id="emp-end" placeholder="ختم قرار داد" autocomplete="off"></div>
+                            </div>
                             <div class="bill-field bill-field-icononly apx-curfield"><i class="fas fa-money-bill-wave bill-field-icon"></i>
-                                <input type="text" inputmode="decimal" id="emp-salary" placeholder="مبلغ قرارداد" autocomplete="off">
+                                <input type="text" inputmode="decimal" id="emp-salary" placeholder="مقدار معاش" autocomplete="off">
                                 <select id="emp-salary-cur" class="apx-cur-in"></select></div>
-                            <div class="bill-field bill-field-icononly"><i class="fas fa-calendar-check bill-field-icon bill-field-icon-btn" role="button" tabindex="0" title="انتخاب تاریخ" onclick="openDualCalendarPicker('emp-start',this)"></i>
-                                <input type="text" id="emp-start" placeholder="تاریخ شروع قرارداد" autocomplete="off"></div>
-                            <div class="bill-field bill-field-icononly"><i class="fas fa-calendar-xmark bill-field-icon bill-field-icon-btn" role="button" tabindex="0" title="انتخاب تاریخ" onclick="openDualCalendarPicker('emp-end',this)"></i>
-                                <input type="text" id="emp-end" placeholder="تاریخ ختم قرارداد (اختیاری)" autocomplete="off"></div>
-                            <div class="bill-field bill-field-icononly"><i class="fas fa-briefcase bill-field-icon"></i>
-                                <input type="text" id="emp-position" placeholder="سمت / وظیفه" autocomplete="off"></div>
                             <div class="bill-field bill-field-icononly"><i class="fas fa-business-time bill-field-icon"></i>
                                 <input type="text" inputmode="decimal" id="emp-hours" placeholder="ساعت کاری روزانه" autocomplete="off"></div>
-                            <div class="apx-emp-print"><button type="button" class="apx-emp-print-btn" onclick="apexEmpPrintContract()"><i class="fas fa-print"></i> چاپ قرارداد خط</button></div>
                         </div>
                     </template>
 </section>
@@ -4748,7 +4786,7 @@
             <button class="filter-icon-btn" onclick="_fxToggleFilter()" title="فیلتر"><i class="fas fa-filter"></i></button>
         </div>
         <h3 class="section-title-in-filter"><button class="btn-back-header" onclick="showSection('dashboard')" title="برگشت"><i class="fas fa-arrow-right"></i></button> لیست تبادلات</h3>
-        <input type="text" id="fx-list-search" placeholder="جستجوی تبادلات (نام، ارز، مبلغ)" oninput="fxRender()">
+        <input type="text" id="fx-list-search" placeholder="جستجوی به اساس نام" oninput="fxRender()">
     </div>
     <div id="fx-sort-menu" class="fx-pop" style="display:none;">
         <button type="button" data-v="new" onclick="_fxSetSort('new')">جدیدترین</button>

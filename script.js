@@ -2655,7 +2655,26 @@ function _pageRowSearch(rowsSelector, q) {
         row.style.display = (!query || hay.indexOf(query) !== -1) ? '' : 'none';
     });
 }
-function searchExpensesList(q) { _pageRowSearch('#expenses-table tbody tr.product-card-row', q); }
+function searchExpensesList(q) {
+    // (نوامبر ۲۰ — سند 1.6.10، ۱-۳) مبلغ هم جستجو می‌شود: 1250، ۱۲۵۰ و 1,250
+    var norm = function (v) {
+        return String(v == null ? '' : v).replace(/[۰-۹]/g, function (d) { return String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)); })
+            .replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); })
+            .replace(/٫/g, '.').replace(/[,٬\s]/g, '');
+    };
+    var raw = (q || '').trim(), query = raw.toLowerCase(), nq = norm(raw);
+    var isNum = nq !== '' && /^[0-9.]+$/.test(nq);
+    document.querySelectorAll('#expenses-table tbody tr.product-card-row').forEach(function (row) {
+        var hay = row.dataset.search || row.textContent.toLowerCase();
+        var hit = !query || hay.indexOf(query) !== -1;
+        if (!hit && isNum) {
+            var amt = norm(row.dataset.amount || '');
+            var na = parseFloat(amt), nqv = parseFloat(nq);
+            hit = (amt !== '' && amt.indexOf(nq) !== -1) || (!isNaN(na) && !isNaN(nqv) && na === nqv);
+        }
+        row.style.display = hit ? '' : 'none';
+    });
+}
 function searchEmployeesList(q) { _pageRowSearch('#employees-table tbody tr.product-card-row', q); }
 
 function _pageRowSort(tbodySelector, rowsSelector, getKey, asc) {
@@ -11180,6 +11199,10 @@ function editCashboxLogEntry(logId, cashboxId) {
         var log = logs.find(function(l) { return l.id == logId; });
         if (!log) { showMessage('خطا', 'این معامله خزانه یافت نشد.'); return; }
 
+        // (نوامبر ۲۰ — سند 1.6.10) سطرِ تبادلهٔ ارز ⇒ همان فرمِ «تبادله ارز» در حالتِ ویرایش
+        var _fxRoute = _cbFxRouteId(log, logs);
+        if (_fxRoute) { _fxEdit(_fxRoute); return; }
+
         // برای انتقال‌های میان حساب‌ها، فرم انتقال را با مقادیر قبلی باز می‌کنیم
         if (log.type === 'transfer_in' || log.type === 'transfer_out') {
             // ابتدا اثر قبلی این انتقال را روی موجودی حساب‌ها برگشت می‌دهیم،
@@ -11189,15 +11212,10 @@ function editCashboxLogEntry(logId, cashboxId) {
             var inLog  = pair.find(function(l){ return l.type === 'transfer_in'; });
             if (!outLog || !inLog) { showMessage('خطا', 'اطلاعات انتقال ناقص است. ویرایش ممکن نیست.'); return; }
 
-            // بازگردانی موجودی حساب‌ها به حالت قبل از انتقال
+            // (نوامبر ۲۰ — سند 1.6.10) جفتِ قبلی همین‌جا برداشته نمی‌شود؛ فقط هنگامِ «انتقال» (ثبت) برداشته
+            // و جفتِ تازه ثبت می‌شود. با بستنِ فرم بدونِ ثبت، داده دست‌نخورده می‌ماند (executeFinCashboxTransfer).
             var srcAmt = parseFloat(outLog.amount || 0);
-            var dstAmt = parseFloat(inLog.amount || 0);
-            if (outLog.cashboxId && srcAmt > 0) db.updateCashboxBalance(outLog.cashboxId, srcAmt, 'in', outLog.currency || undefined);
-            if (inLog.cashboxId  && dstAmt > 0) db.updateCashboxBalance(inLog.cashboxId,  dstAmt, 'out', inLog.currency || undefined);
-
-            // حذف هر دو لاگ قبلی
-            var remaining = logs.filter(function(l){ return l.pairKey !== outLog.pairKey; });
-            localStorage.setItem('cashboxTransactions', JSON.stringify(remaining));
+            var _edState = { pair: [JSON.parse(JSON.stringify(outLog)), JSON.parse(JSON.stringify(inLog))] };
 
             // باز کردن پنل و پر کردن فیلدها — کاربر می‌تواند ویرایش کند و دوباره انتقال دهد
             var panel = document.getElementById('fin-cashbox-transfer-panel');
@@ -11208,6 +11226,7 @@ function editCashboxLogEntry(logId, cashboxId) {
                 setTimeout(function() {
                     // باز کردن پنل (به‌جای toggle که ممکن است باز/بسته رفتار کند)
                     if (panel.style.display !== 'block') toggleFinCashboxTransferPanel();
+                    window.__cbTxEdit = _edState;   // بعد از باز شدنِ پنل (باز کردنِ تازه حالتِ ویرایش را پاک می‌کند)
                     setTimeout(function() {
                         var fromSel = document.getElementById('fin-cb-tx-from');
                         var toSel   = document.getElementById('fin-cb-tx-to');
@@ -11333,6 +11352,11 @@ function _openCashboxLogEditModal(log, cashboxId) {
 }
 
 function deleteCashboxLogEntry(logId, cashboxId) {
+    // (نوامبر ۲۰) سطرِ تبادلهٔ ارزِ تازه ⇒ حذفِ کلِ تبادله (همهٔ لاگ‌ها و سندهای شخص)
+    try {
+        var _l0 = JSON.parse(localStorage.getItem('cashboxTransactions') || '[]').find(function (l) { return l.id == logId; });
+        if (_l0 && _l0.fxId) { _fxDelete(_l0.fxId); return; }
+    } catch (e) {}
     showConfirm('تایید حذف', 'آیا از حذف این معامله خزانه مطمئن هستید؟', function() {
         try {
             var logs = JSON.parse(localStorage.getItem('cashboxTransactions') || '[]');
@@ -16448,6 +16472,11 @@ function editTransaction(id) {
         const transactions = db.getTransactions ? db.getTransactions() : [];
         const tx = transactions.find(t => t.id == id);
         if (!tx) { showMessage('خطا', 'معامله یافت نشد.'); return; }
+        // (نوامبر ۲۰ — سند 1.6.10) سندِ «صرافی»ِ شخص ⇒ فرمِ «تبادله ارز» در حالتِ ویرایش
+        if (tx.type === 'صرافی' && !tx.cashboxId) {
+            _fxEdit(tx.fxId ? tx.fxId : (tx.convGroup ? ('legacy-g:' + tx.convGroup) : ('legacy-t:' + tx.id)));
+            return;
+        }
         // بر اساس نوع معامله فرم مناسب باز کن
         if (tx.type === 'فروش' || tx.type === 'پیش‌فاکتور') {
             showSection('sales-form');
@@ -16829,6 +16858,11 @@ function deleteExpense(id) {
 }
 
 function deleteTransaction(id) {
+    // (نوامبر ۲۰) سندِ تبادلهٔ تازه ⇒ حذفِ کلِ تبادله
+    try {
+        var _t0 = (db.getTransactions() || []).find(function (t) { return t.id == id; });
+        if (_t0 && _t0.type === 'صرافی' && _t0.fxId) { _fxDelete(_t0.fxId); return; }
+    } catch (e) {}
     showConfirm('تایید حذف', 'آیا از حذف این معامله مطمئن هستید؟', function() {
         var transactions = db.getTransactions();
         var tx = transactions.find(function(t) { return t.id == id; });
@@ -25589,7 +25623,23 @@ function toggleSortMenu(section) {
     // بستن همه منوها
     document.querySelectorAll('.sort-menu, .filter-menu').forEach(m => m.style.display = 'none');
     // باز کردن این منو اگر بسته بود
-    if (!isOpen) menu.style.display = 'block';
+    if (!isOpen) { menu.style.display = 'block'; _fsPlaceMenu(menu); }
+}
+
+/** (نوامبر ۲۰ — سند 1.6.10، ۱-۴) اگر منو بعد از اسکرول بیرون از دید باز شد، زیرِ هدرِ چسبان ثابت شود */
+function _fsPlaceMenu(menu) {
+    if (!menu) return;
+    menu.style.position = ''; menu.style.top = ''; menu.style.left = ''; menu.style.right = ''; menu.style.zIndex = '';
+    try {
+        var r = menu.getBoundingClientRect(), vh = window.innerHeight || document.documentElement.clientHeight;
+        if (r.top >= 0 && r.top < vh - 40) return;   // در جای عادی خودش دیده می‌شود
+        var sec = menu.closest('.section') || document;
+        var hdr = sec.querySelector('.list-header-filter, .section-header, .bill-header-bar');
+        var hb = hdr ? hdr.getBoundingClientRect() : null;
+        var top = (hb && hb.bottom > 0) ? hb.bottom + 6 : 70;
+        var rr = r.right ? Math.max(8, (window.innerWidth || 0) - r.right) : 16;
+        menu.style.position = 'fixed'; menu.style.top = top + 'px'; menu.style.right = rr + 'px'; menu.style.left = 'auto'; menu.style.zIndex = '1500';
+    } catch (e) {}
 }
 
 function toggleFilterMenu(section) {
@@ -25601,7 +25651,7 @@ function toggleFilterMenu(section) {
     // بستن همه منوها
     document.querySelectorAll('.sort-menu, .filter-menu').forEach(m => m.style.display = 'none');
     // باز کردن این منو اگر بسته بود
-    if (!isOpen) menu.style.display = 'block';
+    if (!isOpen) { menu.style.display = 'block'; _fsPlaceMenu(menu); }
 }
 // جستجوی زنده (همیشه فعال)
 // === بستن منوهای مرتب‌سازی و فیلتر با کلیک خارج ===
@@ -33239,6 +33289,8 @@ function executeCashboxTransfer() {
 function toggleFinCashboxTransferPanel() {
     var panel = document.getElementById('fin-cashbox-transfer-panel');
     if (!panel) return;
+    window.__cbTxEdit = null;   // (نوامبر ۲۰) باز یا بسته شدنِ پنل ⇒ حالتِ ویرایشِ قبلی پاک
+
     if (panel.style.display === 'none' || panel.style.display === '') {
         var boxes = (db.getCashboxes && db.getCashboxes()) || [];
         var fromSel = document.getElementById('fin-cb-tx-from');
@@ -33290,7 +33342,55 @@ function finCashboxTransferRecalc() {
     if (resEl) resEl.value = result ? formatNumber(Math.round(result * 100) / 100) : '';
 }
 
+/** (نوامبر ۲۰ — سند 1.6.10) ویرایشِ انتقال: جفتِ قبلی فقط هنگامِ ثبت برداشته می‌شود؛
+ *  اگر ثبتِ تازه انجام نشد (مثلاً ردِ هشدارِ موجودیِ منفی)، جفتِ قبلی دقیقاً برمی‌گردد. */
 function executeFinCashboxTransfer() {
+    var ed = window.__cbTxEdit;
+    if (!ed || !ed.pair) return _executeFinCashboxTransferCore();
+    var ids = {}; ed.pair.forEach(function (l) { ids[String(l.id)] = 1; });
+    var logs = _fxReadLogs();
+    var present = logs.filter(function (l) { return ids[String(l.id)]; });
+    if (present.length) {
+        present.forEach(function (l) {
+            var a = parseFloat(l.amount) || 0;
+            if (a > 0 && l.cashboxId != null) db.updateCashboxBalance(l.cashboxId, a, l.type === 'transfer_in' ? 'out' : 'in', l.currency || undefined);
+        });
+        logs = logs.filter(function (l) { return !ids[String(l.id)]; });
+        localStorage.setItem('cashboxTransactions', JSON.stringify(logs));
+    }
+    var before = logs.length, ok = false;
+    try { _executeFinCashboxTransferCore(); } catch (e) { console.error('transfer edit error:', e); }
+    try { ok = _fxReadLogs().length > before; } catch (e) { ok = false; }
+    if (ok) { window.__cbTxEdit = null; }
+    else if (present.length) {
+        // بازگرداندنِ دقیقِ جفتِ قبلی
+        var cur = _fxReadLogs();
+        present.forEach(function (l) {
+            var a = parseFloat(l.amount) || 0;
+            if (a > 0 && l.cashboxId != null) db.updateCashboxBalance(l.cashboxId, a, l.type === 'transfer_in' ? 'in' : 'out', l.currency || undefined);
+        });
+        localStorage.setItem('cashboxTransactions', JSON.stringify(cur.concat(present)));
+    }
+    try { if (typeof loadCashboxes === 'function') loadCashboxes(); } catch (e) {}
+}
+/** سطرِ معاملاتِ خزانه که به یک تبادله تعلق دارد ⇒ شناسهٔ تبادله (جدید، قبلی، یا جفتِ چندارزیِ بی‌توضیح) */
+function _cbFxRouteId(log, logs) {
+    if (!log) return null;
+    if (log.fxId) return log.fxId;
+    if (log.type !== 'transfer_in' && log.type !== 'transfer_out') return null;
+    if (String(log.description || '').indexOf('تبدیل ارز') === 0) return 'legacy-l:' + String(log.datetime || '') + '|' + String(log.createdAt || '').slice(0, 19);
+    var pair = log.pairKey ? (logs || []).filter(function (l) { return l.pairKey === log.pairKey; }) : [];
+    var o = pair.find(function (l) { return l.type === 'transfer_out'; }), i = pair.find(function (l) { return l.type === 'transfer_in'; });
+    if (o && i && o.currency && i.currency && o.currency !== i.currency) {
+        var id = 'lgx_' + o.id;
+        window.__fxTmp = window.__fxTmp || {};
+        window.__fxTmp[id] = { fxId: id, legacy: true, date: o.datetime || o.date || o.createdAt || '', created: o.createdAt || '', notes: o.notes || '',
+            logIds: [o.id, i.id], txIds: [], srcKind: 'cashbox', dstKind: 'cashbox' };
+        return id;
+    }
+    return null;
+}
+function _executeFinCashboxTransferCore() {
     var fromId = document.getElementById('fin-cb-tx-from').value;
     var toId   = document.getElementById('fin-cb-tx-to').value;
     var amount = parseFloat(document.getElementById('fin-cb-tx-amount').value) || 0;
@@ -45959,8 +46059,10 @@ function _apexDlgIds() {
         'currency-convert-form', 'product-adj-form', 'emp-ot-form'];
 }
 function _apexDlgIsDesktop() {
+    // (نوامبر ۲۰ — مثلِ APEX Store 1.6.10، تصمیمِ صاحب برنامه) پنجره فقط وقتی برنامهٔ اندروید نیست و عرض بیشتر از ۱۰۲۴ است
     try { if (typeof ndUpdIsAndroidApp === 'function' && ndUpdIsAndroidApp()) return false; } catch (e) {}
-    return (window.innerWidth || document.documentElement.clientWidth || 0) >= 769;
+    try { if (document.documentElement.getAttribute('data-jruntime') === 'android') return false; } catch (e) {}
+    return (window.innerWidth || document.documentElement.clientWidth || 0) > 1024;
 }
 function _apexDlgState() {
     if (!window.__apexDlgSt) window.__apexDlgSt = { under: null, stack: [], suspended: null, cancelling: false, last: null };
@@ -46123,6 +46225,7 @@ function _fxMs(d) { try { if (typeof _hbDateToMs === 'function') { var m = _hbDa
  */
 function apexSarafiOpen(preset) {
     preset = preset || {};
+    window.__fxEdit = null;   // هر باز شدنِ عادی حالتِ ویرایش را پاک می‌کند
     var active = document.querySelector('.section.active');
     window.__fxReturn = preset.returnSection || (active && active.id !== 'currency-convert-form' ? active.id : 'dashboard');
     window.__fxReturnTab = (window.__fxReturn === 'financial') ? 'cashbox' : null;
@@ -46163,6 +46266,7 @@ function openCurrencyConversion(lockType, preset) {
     apexSarafiOpen(p);
 }
 function _fxBack() {
+    window.__fxEdit = null;
     var r = window.__fxReturn || 'dashboard';
     showSection(r === 'currency-convert-form' ? 'dashboard' : r);
     if (r === 'financial') { setTimeout(function () { try { switchFinancialTab('cashbox'); } catch (e) {} }, 60); }
@@ -46239,7 +46343,7 @@ function _fxPreviewProfit() {
     var out = _fxEl('fx-profit'); if (!out) return;
     var f = _fxReadForm();
     if (!(f.amtA > 0 && f.amtB > 0) || !f.fromCur || !f.toCur || f.fromCur === f.toCur) { out.value = ''; out.classList.remove('fx-loss', 'fx-gain'); return; }
-    var res = _fxPnlRun({ extra: { fxId: '__preview__', date: f.date, fromCur: f.fromCur, amtA: f.amtA, toCur: f.toCur, amtB: f.amtB } });
+    var res = _fxPnlRun({ exclude: (window.__fxEdit && window.__fxEdit.id) || null, extra: { fxId: '__preview__', date: f.date, fromCur: f.fromCur, amtA: f.amtA, toCur: f.toCur, amtB: f.amtB } });
     var p = res.byId['__preview__'] || 0, base = _fxBase();
     out.value = (p >= 0 ? 'مفاد: ' : 'ضرر: ') + _fxFmt(Math.abs(p)) + ' ' + _fxCurLbl(base);
     out.classList.toggle('fx-loss', p < 0); out.classList.toggle('fx-gain', p > 0);
@@ -46249,74 +46353,172 @@ function _fxPreviewProfit() {
 function _fxSave() {
     var f = _fxReadForm();
     var err = function (m) { try { showMessage('خطا', m); } catch (e) { alert(m); } };
-    if (!f.fromCur || !f.toCur) return err('ارزِ مبلغ آمد و مبلغ رفت را انتخاب کنید.');
-    if (!(f.amtA > 0)) return err('«مبلغ آمد» باید بزرگ‌تر از صفر باشد.');
-    if (!(f.amtB > 0)) return err('«مبلغ رفت» باید بزرگ‌تر از صفر باشد.');
-    if (!f.srcId) return err(f.srcKind === 'person' ? 'شخصِ مبدأ را انتخاب کنید.' : 'خزانهٔ مبدأ را انتخاب کنید.');
+    if (!f.srcId) return err(f.srcKind === 'person' ? 'شخصِ مبدأ را انتخاب کنید.' : 'مبدأ را انتخاب کنید.');
+    if (!f.fromCur || !f.toCur) return err('لطفاً ارزِ «مبلغ آمد» و «مبلغ رفت» را انتخاب کنید.');
+    if (!(f.amtA > 0) || !(f.amtB > 0)) return err('«مبلغ آمد» و «مبلغ رفت» باید بزرگ‌تر از صفر باشند.');
     if (f.dstKind !== 'none' && !f.dstId) return err(f.dstKind === 'person' ? 'شخصِ مقصد را انتخاب کنید.' : 'خزانهٔ مقصد را انتخاب کنید.');
-    if (f.dstKind === 'none' && f.fromCur === f.toCur) return err('برای تبدیل داخلِ همان خزانه/حساب باید دو ارزِ متفاوت انتخاب شود.');
     if (f.dstKind === f.srcKind && String(f.dstId) === String(f.srcId)) return err('مبدأ و مقصد نباید یکی باشند.');
+    if (f.dstKind === 'none' && f.fromCur === f.toCur) return err('برای تبدیلِ داخلِ همان حساب باید دو ارزِ متفاوت انتخاب شود.');
     var boxes = (db.getCashboxes && db.getCashboxes()) || [], persons = (db.getPersons && db.getPersons()) || [];
     var nameOf = function (kind, id) {
         if (kind === 'cashbox') { var b = boxes.find(function (x) { return String(x.id) === String(id); }); return b ? b.name : ''; }
         if (kind === 'person') { var p = persons.find(function (x) { return String(x.id) === String(id); }); return p ? p.name : ''; }
         return '';
     };
-    var fxId = 'fx_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+    // (نوامبر ۲۰ — سند 1.6.10) ویرایش: اثرِ قبلی فقط همین‌جا (هنگامِ «ثبت») برداشته می‌شود
+    var ed = window.__fxEdit || null;
+    var fxId = (ed && /^fx_/.test(String(ed.id))) ? String(ed.id) : ('fx_' + Date.now() + '_' + Math.floor(Math.random() * 1e6));
+    if (ed) {
+        var removed = false;
+        try { removed = _fxRemoveEffects(ed.rec); } catch (e) { removed = false; }
+        if (!removed) return err('سندِ قبلیِ این تبادله پیدا نشد؛ ویرایش انجام نشد.');
+    }
     var dt = f.date || ((typeof _nowJalaliDateTime === 'function') ? _nowJalaliDateTime() : '');
-    var meta = { fxId: fxId, fxNew: true, fxFrom: f.fromCur, fxAmtA: f.amtA, fxTo: f.toCur, fxAmtB: f.amtB, fxRate: f.rate, fxOp: f.op,
+    // قاعدهٔ واحدِ «آمد/رفت» (flow): مبدأ «مبلغ رفت» (B) را می‌دهد و مقصد «مبلغ آمد» (A) را می‌گیرد؛
+    // مقصدِ خالی یعنی همان مبدأ. سمتِ فروشگاه برای مفاد: آمد را می‌گیرد، رفت را می‌دهد.
+    var meta = { fxId: fxId, fxNew: true, fxFlow: 1, fxFrom: f.fromCur, fxAmtA: f.amtA, fxTo: f.toCur, fxAmtB: f.amtB, fxRate: f.rate, fxOp: f.op,
         fxSrcKind: f.srcKind, fxSrcId: String(f.srcId), fxSrcName: nameOf(f.srcKind, f.srcId),
         fxDstKind: f.dstKind, fxDstId: String(f.dstId || ''), fxDstName: nameOf(f.dstKind, f.dstId), fxDate: dt };
-    var label = _fxFmt(f.amtA) + ' ' + _fxCurLbl(f.fromCur) + ' → ' + _fxFmt(f.amtB) + ' ' + _fxCurLbl(f.toCur);
-    var boxLog = function (boxId, dir, amt, cur, desc, relId, relName) {
+    if (ed && ed.createdAt) meta.fxCreatedAt = ed.createdAt;
+    if (ed) meta.fxUpdatedAt = new Date().toISOString();
+    var label = _fxFmt(f.amtA) + ' ' + _fxCurLbl(f.fromCur) + ' ← ' + _fxFmt(f.amtB) + ' ' + _fxCurLbl(f.toCur);
+    var boxLog = function (boxId, dir, amt, cur, desc, relId, relName, pair) {
         db.updateCashboxBalance(parseInt(boxId), amt, dir, cur);
         if (typeof _logCashboxTransaction === 'function') {
-            _logCashboxTransaction(parseInt(boxId), Object.assign({ type: dir === 'in' ? 'transfer_in' : 'transfer_out', amount: amt, currency: cur, datetime: dt,
-                notes: f.notes, description: desc, relatedCashboxId: relId != null ? relId : undefined, relatedCashboxName: relName || undefined }, meta));
+            var o = Object.assign({ type: dir === 'in' ? 'transfer_in' : 'transfer_out', amount: amt, currency: cur, datetime: dt,
+                notes: f.notes, description: desc, relatedCashboxId: relId != null ? relId : undefined, relatedCashboxName: relName || undefined }, meta);
+            if (pair) o.pairKey = fxId;
+            _logCashboxTransaction(parseInt(boxId), o);
         }
     };
     var personLeg = function (pid, o) {
         db.saveTransaction(Object.assign({ type: 'صرافی', personId: parseInt(pid), rateUsed: (f.amtA > 0 ? f.amtB / f.amtA : 0),
-            date: dt, createdAt: dt || undefined, notes: f.notes }, o, meta));
+            date: dt, createdAt: dt || undefined, notes: f.notes, convSign: 1 }, o, meta));
     };
+    var A = f.amtA, B = f.amtB, cA = f.fromCur, cB = f.toCur;
     try {
         var S = f.srcKind, D = f.dstKind;
         if (S === 'cashbox' && D === 'none') {
-            boxLog(f.srcId, 'out', f.amtA, f.fromCur, 'تبادله ارز داخل خزانه: ' + label);
-            boxLog(f.srcId, 'in', f.amtB, f.toCur, 'تبادله ارز داخل خزانه: ' + label);
+            boxLog(f.srcId, 'in', A, cA, 'تبادله ارز داخل خزانه: ' + label, null, null, true);
+            boxLog(f.srcId, 'out', B, cB, 'تبادله ارز داخل خزانه: ' + label, null, null, true);
         } else if (S === 'cashbox' && D === 'cashbox') {
-            boxLog(f.srcId, 'out', f.amtA, f.fromCur, 'تبادله ارز به خزانه ' + meta.fxDstName + ' (' + label + ')', parseInt(f.dstId), meta.fxDstName);
-            boxLog(f.dstId, 'in', f.amtB, f.toCur, 'تبادله ارز از خزانه ' + meta.fxSrcName + ' (' + label + ')', parseInt(f.srcId), meta.fxSrcName);
+            boxLog(f.srcId, 'out', B, cB, 'تبادله ارز به خزانه ' + meta.fxDstName + ' (' + label + ')', parseInt(f.dstId), meta.fxDstName, true);
+            boxLog(f.dstId, 'in', A, cA, 'تبادله ارز از خزانه ' + meta.fxSrcName + ' (' + label + ')', parseInt(f.srcId), meta.fxSrcName, true);
         } else if (S === 'person' && D === 'none') {
-            personLeg(f.srcId, { currency: f.fromCur, fromCurrency: f.fromCur, fromAmount: f.amtA, toCurrency: f.toCur, toAmount: f.amtB,
-                convSign: (typeof _ccPersonSign === 'function') ? _ccPersonSign(f.srcId, f.fromCur) : 1,
+            personLeg(f.srcId, { currency: cB, fromCurrency: cB, fromAmount: B, toCurrency: cA, toAmount: A,
                 description: 'تبادله ارز داخل حساب شخص: ' + label });
         } else if (S === 'person' && D === 'person') {
-            personLeg(f.srcId, { currency: f.fromCur, fromCurrency: f.fromCur, fromAmount: f.amtA, toCurrency: f.fromCur, toAmount: 0, convSign: -1, convGroup: fxId,
+            personLeg(f.srcId, { currency: cB, fromCurrency: cB, fromAmount: B, toCurrency: cB, toAmount: 0, convGroup: fxId,
                 description: 'تبادله ارز بین اشخاص (مبدأ): ' + label });
-            personLeg(f.dstId, { currency: f.toCur, fromCurrency: f.toCur, fromAmount: 0, toCurrency: f.toCur, toAmount: f.amtB, convSign: -1, convGroup: fxId,
+            personLeg(f.dstId, { currency: cA, fromCurrency: cA, fromAmount: 0, toCurrency: cA, toAmount: A, convGroup: fxId,
                 description: 'تبادله ارز بین اشخاص (مقصد): ' + label });
         } else if (S === 'cashbox' && D === 'person') {
-            // «مبلغ آمد» از خزانه خارج و «مبلغ رفت» باقیداریِ شخص می‌شود
-            boxLog(f.srcId, 'out', f.amtA, f.fromCur, 'تبادله ارز به شخص ' + meta.fxDstName + ' (' + label + ')');
-            personLeg(f.dstId, { currency: f.toCur, fromCurrency: f.toCur, fromAmount: 0, toCurrency: f.toCur, toAmount: f.amtB, convSign: 1,
+            boxLog(f.srcId, 'out', B, cB, 'تبادله ارز به شخص ' + meta.fxDstName + ' (' + label + ')');
+            personLeg(f.dstId, { currency: cA, fromCurrency: cA, fromAmount: 0, toCurrency: cA, toAmount: A,
                 description: 'تبادله ارز از خزانه ' + meta.fxSrcName + ': ' + label });
         } else if (S === 'person' && D === 'cashbox') {
-            // «مبلغ آمد» طلبِ شخص و «مبلغ رفت» واردِ خزانه می‌شود
-            personLeg(f.srcId, { currency: f.fromCur, fromCurrency: f.fromCur, fromAmount: f.amtA, toCurrency: f.fromCur, toAmount: 0, convSign: 1,
+            personLeg(f.srcId, { currency: cB, fromCurrency: cB, fromAmount: B, toCurrency: cB, toAmount: 0,
                 description: 'تبادله ارز به خزانه ' + meta.fxDstName + ': ' + label });
-            boxLog(f.dstId, 'in', f.amtB, f.toCur, 'تبادله ارز از شخص ' + meta.fxSrcName + ' (' + label + ')');
+            boxLog(f.dstId, 'in', A, cA, 'تبادله ارز از شخص ' + meta.fxSrcName + ' (' + label + ')');
         } else { return err('ترکیبِ مبدأ و مقصد نامعتبر است.'); }
     } catch (e) {
         console.error('fx save error:', e);
         return err('ثبتِ تبادله با خطا مواجه شد.');
     }
-    try { if (typeof addChangelog === 'function') addChangelog('ثبت', 'تبادله ارز', meta, 'تبادله ارز: ' + label); } catch (e) {}
+    window.__fxEdit = null;
+    try { if (typeof addChangelog === 'function') addChangelog(ed ? 'ویرایش' : 'ثبت', 'تبادله ارز', meta, 'تبادله ارز: ' + label); } catch (e) {}
+    _fxRefreshAll();
+    try { showToast(ed ? 'تبادله ارز ویرایش شد.' : 'تبادله ارز با موفقیت ثبت شد.', 'success'); } catch (e) {}
+    _fxBack();
+}
+function _fxRefreshAll() {
     try { if (typeof loadCashboxes === 'function') loadCashboxes(); } catch (e) {}
+    try { if (typeof loadCashboxesSummary === 'function') loadCashboxesSummary(); } catch (e) {}
+    try { if (typeof finUpdateCashTotals === 'function') finUpdateCashTotals(); } catch (e) {}
     try { if (typeof loadPersonsList === 'function') loadPersonsList(); } catch (e) {}
     try { window.dispatchEvent(new CustomEvent('jouya-data-change', { detail: { reason: 'fx' } })); } catch (e) {}
-    try { showToast('تبادله ثبت شد: ' + label, 'success'); } catch (e) {}
-    _fxBack();
+}
+
+// ─────────────── اثرِ واقعی، برداشتن و ویرایشِ تبادله (سند 1.6.10، بخش ۲-۷) ───────────────
+function _fxReadLogs() { try { return JSON.parse(localStorage.getItem('cashboxTransactions') || '[]') || []; } catch (e) { return []; } }
+/** اثرِ واقعیِ ثبت‌شدهٔ یک تبادله: فهرستِ {k,id,name,cur,amt±} (خزانه: ورود+ خروج−؛ شخص: −cs×from +cs×to) */
+function _fxEffects(rec) {
+    var out = [], logs = _fxReadLogs(), txs = (db.getTransactions && db.getTransactions()) || [];
+    var boxes = (db.getCashboxes && db.getCashboxes()) || [], persons = (db.getPersons && db.getPersons()) || [];
+    var bName = function (id) { var b = boxes.find(function (x) { return String(x.id) === String(id); }); return b ? b.name : ''; };
+    var pName = function (id) { var p = persons.find(function (x) { return String(x.id) === String(id); }); return p ? p.name : ''; };
+    var lids = {}, tids = {};
+    (rec.logIds || []).forEach(function (i) { lids[String(i)] = 1; });
+    (rec.txIds || []).forEach(function (i) { tids[String(i)] = 1; });
+    logs.forEach(function (g) {
+        if (!g || !lids[String(g.id)]) return;
+        var a = parseFloat(g.amount) || 0; if (!a) return;
+        if (g.type === 'transfer_in') out.push({ k: 'cashbox', id: String(g.cashboxId), name: bName(g.cashboxId), cur: g.currency, amt: a });
+        else if (g.type === 'transfer_out') out.push({ k: 'cashbox', id: String(g.cashboxId), name: bName(g.cashboxId), cur: g.currency, amt: -a });
+    });
+    txs.forEach(function (t) {
+        if (!t || !tids[String(t.id)]) return;
+        var cs = (t.convSign != null ? t.convSign : 1), fa = parseFloat(t.fromAmount) || 0, ta = parseFloat(t.toAmount) || 0;
+        if (fa) out.push({ k: 'person', id: String(t.personId), name: pName(t.personId), cur: t.fromCurrency || t.currency, amt: -cs * fa });
+        if (ta) out.push({ k: 'person', id: String(t.personId), name: pName(t.personId), cur: t.toCurrency || t.currency, amt: cs * ta });
+    });
+    return out;
+}
+/** از اثرِ واقعی: دقیقاً یک لِنگِ منفی (مبدأ، رفت=B) و یک لِنگِ مثبت (مقصد، آمد=A) */
+function _fxFormFromEffects(rec) {
+    var eff = _fxEffects(rec);
+    var neg = eff.filter(function (e) { return e.amt < 0; }), pos = eff.filter(function (e) { return e.amt > 0; });
+    if (neg.length !== 1 || pos.length !== 1) return null;
+    var n = neg[0], p = pos[0], A = Math.abs(p.amt), B = Math.abs(n.amt);
+    var inside = (n.k === p.k && n.id === p.id);
+    var rate, op;
+    if (rec.flow && rec.rate) { rate = parseFloat(rec.rate) || 0; op = (rec.op === 'div' || rec.op === 'divide') ? 'div' : 'mul'; }
+    else if (A > 0 && B / A >= 1) { rate = _fxR(B / A, 6); op = 'mul'; }
+    else { rate = B > 0 ? _fxR(A / B, 6) : 0; op = 'div'; }
+    return { src: { kind: n.k, id: n.id }, dst: inside ? { kind: 'none' } : { kind: p.k, id: p.id },
+        fromCur: p.cur, amtA: A, toCur: n.cur, amtB: B, rate: rate, op: op };
+}
+/** برگرداندنِ کاملِ اثرِ قبلی و حذفِ لاگ‌ها و سندهای آن؛ false اگر هیچ سندی پیدا نشد */
+function _fxRemoveEffects(rec) {
+    var lids = {}, tids = {}, found = 0;
+    (rec.logIds || []).forEach(function (i) { lids[String(i)] = 1; });
+    (rec.txIds || []).forEach(function (i) { tids[String(i)] = 1; });
+    var logs = _fxReadLogs();
+    logs.forEach(function (g) {
+        if (!g || !lids[String(g.id)]) return;
+        found++;
+        var a = parseFloat(g.amount) || 0;
+        if (a > 0 && g.cashboxId != null) {
+            try { db.updateCashboxBalance(parseInt(g.cashboxId), a, g.type === 'transfer_in' ? 'out' : 'in', g.currency); } catch (e) {}
+        }
+    });
+    if (found) localStorage.setItem('cashboxTransactions', JSON.stringify(logs.filter(function (g) { return !(g && lids[String(g.id)]); })));
+    var txs = (db.getTransactions && db.getTransactions()) || [];
+    var hit = txs.filter(function (t) { return t && tids[String(t.id)]; }).length;
+    if (hit) { found += hit; localStorage.setItem('transactions', JSON.stringify(txs.filter(function (t) { return !(t && tids[String(t.id)]); }))); }
+    return found > 0;
+}
+/** رکوردِ تبادله با شناسه (جدید، قبلی، یا جفتِ موقتِ lgx_ از معاملاتِ خزانه) */
+function _fxFind(id) {
+    id = String(id);
+    var x = _fxCollect().find(function (e) { return String(e.fxId) === id; });
+    if (x) return x;
+    if (id.indexOf('lgx_') === 0 && window.__fxTmp && window.__fxTmp[id]) return window.__fxTmp[id];
+    return null;
+}
+function _fxEdit(id) {
+    var rec = _fxFind(id);
+    if (!rec) { try { showMessage('خطا', 'این تبادله پیدا نشد.'); } catch (e) {} return; }
+    var fm = _fxFormFromEffects(rec);
+    if (!fm) { try { showMessage('خطا', 'اطلاعاتِ این تبادله کامل نیست؛ ویرایش ممکن نیست. می‌توانید آن را حذف و دوباره ثبت کنید.'); } catch (e) {} return; }
+    apexSarafiOpen({ src: fm.src, dst: fm.dst, fromCur: fm.fromCur, toCur: fm.toCur });
+    var set = function (eid, v) { var e = _fxEl(eid); if (e) e.value = v; };
+    set('fx-amt-a', String(fm.amtA)); set('fx-amt-b', String(fm.amtB)); set('fx-rate', String(fm.rate));
+    _fxSetOp(fm.op, true);
+    set('fx-date', rec.date || ''); set('fx-notes', rec.notes || '');
+    window.__fxEdit = { id: rec.fxId, rec: rec, createdAt: rec.created || '' };
+    _fxPreviewProfit();
+    var t = _fxEl('fx-title'); if (t) t.textContent = 'ویرایش تبادله ارز';
 }
 
 // ─────────────── جمع‌آوریِ تبادلات (جدید + قبلی) ───────────────
@@ -46334,7 +46536,8 @@ function _fxCollect() {
                 fromCur: r.fxFrom, amtA: parseFloat(r.fxAmtA) || 0, toCur: r.fxTo, amtB: parseFloat(r.fxAmtB) || 0, rate: r.fxRate, op: r.fxOp,
                 srcKind: r.fxSrcKind, srcId: r.fxSrcId, srcName: r.fxSrcKind === 'cashbox' ? (bName(r.fxSrcId) || r.fxSrcName) : (pName(r.fxSrcId) || r.fxSrcName),
                 dstKind: r.fxDstKind, dstId: r.fxDstId, dstName: r.fxDstKind === 'cashbox' ? (bName(r.fxDstId) || r.fxDstName) : (r.fxDstKind === 'person' ? (pName(r.fxDstId) || r.fxDstName) : ''),
-                notes: r.notes || '', txIds: [], logIds: [] };
+                notes: r.notes || '', txIds: [], logIds: [], flow: !!r.fxFlow };
+            if (r.fxCreatedAt) map[r.fxId].created = r.fxCreatedAt;
             out.push(map[r.fxId]);
         }
         if (src === 'tx') map[r.fxId].txIds.push(r.id); else map[r.fxId].logIds.push(r.id);
@@ -46378,18 +46581,22 @@ function _fxCollect() {
 function _fxPnlRun(opts) {
     opts = opts || {};
     var base = _fxBase();
-    var list = _fxCollect().filter(function (x) { return !x.legacy && x.amtA > 0 && x.amtB > 0 && x.fromCur && x.toCur; });
-    if (opts.extra) list.push({ fxId: opts.extra.fxId, date: opts.extra.date, created: '9999', fromCur: opts.extra.fromCur, amtA: opts.extra.amtA, toCur: opts.extra.toCur, amtB: opts.extra.amtB, preview: true });
+    var list = _fxCollect().filter(function (x) { return !x.legacy && x.amtA > 0 && x.amtB > 0 && x.fromCur && x.toCur && (!opts.exclude || String(x.fxId) !== String(opts.exclude)); });
+    if (opts.extra) list.push({ fxId: opts.extra.fxId, date: opts.extra.date, created: '9999', fromCur: opts.extra.fromCur, amtA: opts.extra.amtA, toCur: opts.extra.toCur, amtB: opts.extra.amtB, preview: true, flow: true });
     list.sort(function (a, b) { return (_fxMs(a.date) - _fxMs(b.date)) || String(a.created || '').localeCompare(String(b.created || '')) || String(a.fxId).localeCompare(String(b.fxId)); });
     var pool = {}, byId = {}, rows = [], total = 0;
     var P = function (c) { if (!pool[c]) pool[c] = { qty: 0, cost: 0 }; return pool[c]; };
     list.forEach(function (x) {
-        var profit = 0, a = x.amtA, b = x.amtB;
-        if (x.fromCur === x.toCur) { byId[x.fxId] = 0; return; }
-        if (x.fromCur === base) {
-            var pt = P(x.toCur); pt.qty += b; pt.cost += a;
-        } else if (x.toCur === base) {
-            var pf = P(x.fromCur), q = Math.min(a, pf.qty);
+        // سمتِ فروشگاه: تبادله‌های flow (قاعدهٔ تازه) «آمد» را می‌گیرند و «رفت» را می‌دهند؛
+        // تبادله‌های پیش از آن «آمد» را می‌دادند و «رفت» را می‌گرفتند (اثرِ ثبت‌شده‌شان دست نمی‌خورد).
+        var gC = x.flow ? x.toCur : x.fromCur, gA = x.flow ? x.amtB : x.amtA;   // می‌دهد
+        var tC = x.flow ? x.fromCur : x.toCur, tA = x.flow ? x.amtA : x.amtB;   // می‌گیرد
+        var profit = 0, a = gA, b = tA;
+        if (gC === tC) { byId[x.fxId] = 0; return; }
+        if (gC === base) {
+            var pt = P(tC); pt.qty += b; pt.cost += a;
+        } else if (tC === base) {
+            var pf = P(gC), q = Math.min(a, pf.qty);
             if (q > 0) {
                 var avg = pf.cost / pf.qty, part = b * (q / a);
                 profit = part - avg * q;
@@ -46397,12 +46604,12 @@ function _fxPnlRun(opts) {
                 if (pf.qty < 1e-9) { pf.qty = 0; pf.cost = 0; }
             }
         } else {
-            var pff = P(x.fromCur), qq = Math.min(a, pff.qty);
+            var pff = P(gC), qq = Math.min(a, pff.qty);
             if (qq > 0) {
                 var avg2 = pff.cost / pff.qty, moved = avg2 * qq;
                 pff.cost -= moved; pff.qty -= qq;
                 if (pff.qty < 1e-9) { pff.qty = 0; pff.cost = 0; }
-                var ptt = P(x.toCur); ptt.qty += b * (qq / a); ptt.cost += moved;
+                var ptt = P(tC); ptt.qty += b * (qq / a); ptt.cost += moved;
             }
         }
         profit = _fxR(profit, 2);
@@ -46418,7 +46625,7 @@ function _fxRealizedForReport(fromDate, toDate) {
     var rows = [], total = 0;
     res.rows.forEach(function (r) {
         if (!inR(r.fx.date || r.fx.created || '')) return;
-        var code = (r.fx.fromCur === res.base) ? r.fx.toCur : r.fx.fromCur;
+        var code = (r.fx.fromCur === res.base) ? r.fx.toCur : r.fx.fromCur;   // ارزِ غیرپایهٔ همان تبادله
         rows.push({ code: code, gain: r.profit, fx: r.fx });
         total += r.profit;
     });
@@ -46439,11 +46646,20 @@ function fxRender() {
     var list = _fxCollect(), pnl = _fxPnlRun(), base = pnl.base;
     var flt = window.__fxFilter || 'all', srt = window.__fxSort || 'new';
     var q = String((_fxEl('fx-list-search') || {}).value || '').trim().toLowerCase();
+    // فلتر: فقط ارزهایی که در تبادله‌ها هست + «همه» (سند 1.6.10، بخش ۲-۸)
+    var curs = [];
+    list.forEach(function (x) { [x.fromCur, x.toCur].forEach(function (c) { if (c && curs.indexOf(c) < 0) curs.push(c); }); });
+    var fm = _fxEl('fx-filter-menu');
+    if (fm) {
+        if (flt !== 'all' && curs.indexOf(flt) < 0) flt = window.__fxFilter = 'all';
+        fm.innerHTML = '<button type="button" data-v="all" onclick="_fxSetFilter(\'all\')">همه</button>' + curs.map(function (c) {
+            return '<button type="button" data-v="' + _fxEsc(c) + '" onclick="_fxSetFilter(\'' + _fxEsc(c) + '\')">' + _fxEsc(_fxCurLbl(c)) + '</button>';
+        }).join('');
+    }
     list = list.filter(function (x) {
-        if (flt === 'new' && x.legacy) return false;
-        if (flt === 'legacy' && !x.legacy) return false;
+        if (flt !== 'all' && x.fromCur !== flt && x.toCur !== flt) return false;
         if (!q) return true;
-        var hay = [x.srcName, x.dstName, x.fromCur, x.toCur, _fxCurLbl(x.fromCur), _fxCurLbl(x.toCur), x.amtA, x.amtB, x.notes, x.date].join(' ').toLowerCase();
+        var hay = [x.srcName, x.dstName, x.notes].join(' ').toLowerCase();
         return hay.indexOf(q) >= 0;
     });
     list.sort(function (a, b) {
@@ -46454,48 +46670,58 @@ function fxRender() {
     Array.prototype.forEach.call(document.querySelectorAll('#fx-sort-menu button'), function (b) { b.classList.toggle('on', b.getAttribute('data-v') === srt); });
     Array.prototype.forEach.call(document.querySelectorAll('#fx-filter-menu button'), function (b) { b.classList.toggle('on', b.getAttribute('data-v') === flt); });
     if (!list.length) { body.innerHTML = '<div class="fx-empty"><i class="fas fa-money-bill-transfer"></i><div>هیچ تبادله‌ای ثبت نشده است</div></div>'; return; }
+    var fmtTime = function (d) { try { return (typeof formatAfghanDateTime === 'function') ? (formatAfghanDateTime(d) || d) : d; } catch (e) { return d; } };
+    var kv = function (k, v) { return '<span class="fx-kv"><b>' + k + '</b> ' + _fxEsc(v || '—') + '</span>'; };
     body.innerHTML = list.map(function (x) {
+        // نمایش بر اساسِ اثرِ واقعی: مبدأ = طرفی که «رفت» را داد، مقصد = طرفی که «آمد» را گرفت
+        var fm2 = null; try { fm2 = _fxFormFromEffects(x); } catch (e) { fm2 = null; }
+        var sK = fm2 ? fm2.src.kind : x.srcKind, sN = fm2 ? _fxSideName(fm2.src) : x.srcName;
+        var dK = fm2 ? fm2.dst.kind : x.dstKind, dN = fm2 ? _fxSideName(fm2.dst) : x.dstName;
+        var aAmt = fm2 ? fm2.amtA : x.amtA, aCur = fm2 ? fm2.fromCur : x.fromCur, bAmt = fm2 ? fm2.amtB : x.amtB, bCur = fm2 ? fm2.toCur : x.toCur;
+        var rate = fm2 ? fm2.rate : x.rate;
         var p = x.legacy ? 0 : (pnl.byId[x.fxId] || 0);
-        var pcls = p > 0 ? 'fx-gain' : (p < 0 ? 'fx-loss' : '');
-        var amt = (x.amtA ? _fxFmt(x.amtA) + ' ' + _fxEsc(_fxCurLbl(x.fromCur)) : '—') + ' <i class="fas fa-arrow-left fx-c-arr"></i> ' + (x.amtB ? _fxFmt(x.amtB) + ' ' + _fxEsc(_fxCurLbl(x.toCur)) : '—');
-        var menu = x.legacy ? '' :
-            '<div class="product-card-actions"><button class="product-card-kebab" onclick="togglePersonRowMenu(this, event)" title="عملیات"><i class="fas fa-ellipsis-v"></i></button>' +
-            '<div class="person-row-menu"><button type="button" class="danger" onclick="_fxDelete(\'' + _fxEsc(x.fxId) + '\')"><i class="fas fa-trash"></i> حذف تبادله</button></div></div>';
-        return '<div class="fx-card' + (x.legacy ? ' fx-legacy' : '') + '">' +
-            '<span class="fx-c-av"><i class="fas fa-money-bill-transfer"></i></span>' +
-            '<div class="fx-c-main">' +
-                '<div class="fx-c-top">' + _fxSideHtml(x.srcKind, x.srcName) + '<i class="fas fa-arrow-left fx-c-arr"></i>' + _fxSideHtml(x.dstKind, x.dstName) +
-                    (x.legacy ? '<span class="fx-c-tag">legacy</span>' : '') + '</div>' +
-                '<div class="fx-c-amt">' + amt + '</div>' +
-                '<div class="fx-c-meta"><span><i class="fas fa-calendar-alt"></i> ' + _fxEsc(x.date || '') + '</span>' +
-                    (x.rate ? '<span><i class="fas fa-percent"></i> ' + _fxEsc(_fxR(x.rate, 4)) + '</span>' : '') +
-                    '<span class="fx-c-pnl ' + pcls + '">' + (p < 0 ? 'ضرر: ' : 'مفاد: ') + _fxFmt(Math.abs(p)) + ' ' + _fxEsc(_fxCurLbl(base)) + '</span></div>' +
-            '</div>' + menu + '</div>';
+        var srcHtml = kv(sK === 'person' ? 'حساب:' : 'خزانه:', sN);
+        var dstHtml = (dK === 'none' || !dK)
+            ? '<span class="fx-kv">' + (sK === 'person' ? 'داخلِ همان حساب' : 'داخلِ همان خزانه') + '</span>'
+            : kv(dK === 'person' ? 'به حساب:' : 'به خزانه:', dN);
+        var pnlHtml = p ? '<span class="fx-kv fx-c-pnl ' + (p > 0 ? 'fx-gain' : 'fx-loss') + '"><b>' + (p > 0 ? 'مفاد:' : 'ضرر:') + '</b> ' + _fxFmt(Math.abs(p)) + ' ' + _fxEsc(_fxCurLbl(base)) + '</span>' : '';
+        var amt = '<span class="fx-amt">' + (aAmt ? _fxFmt(aAmt) + '-' + _fxEsc(aCur || '') : '—') + '</span><span class="fx-amt">' + (bAmt ? _fxFmt(bAmt) + '-' + _fxEsc(bCur || '') : '—') + '</span>';
+        var idq = _fxEsc(String(x.fxId)).replace(/'/g, '&#39;');
+        var menu = '<div class="product-card-actions"><button type="button" class="product-card-kebab" onclick="togglePersonRowMenu(this, event)" title="عملیات"><i class="fas fa-ellipsis-v"></i></button>' +
+            '<div class="person-row-menu">' +
+            '<button type="button" onclick="_fxEdit(\'' + idq + '\')"><i class="fas fa-edit"></i> ویرایش تبادله</button>' +
+            '<button type="button" class="danger" onclick="_fxDelete(\'' + idq + '\')"><i class="fas fa-trash"></i> حذف تبادله</button></div></div>';
+        return '<div class="fx-card fx-card2">' +
+            '<div class="fx-c-head"><span class="fx-c-av"><i class="fas fa-circle-down"></i></span><span class="fx-c-title">تبدیل ارز</span><span class="fx-c-amts">' + amt + '</span></div>' +
+            '<div class="fx-c-meta2">' + srcHtml + dstHtml + kv('نرخ:', rate ? String(_fxR(rate, 6)) : '—') + kv('زمان:', fmtTime(x.date || x.created || '')) + pnlHtml + '</div>' +
+            '<div class="fx-c-notes"><b>اطلاعات بیشتر:</b> ' + _fxEsc(x.notes || '') + '</div>' +
+            '<div class="fx-c-amts-m">' + amt + '</div>' +
+            menu + '</div>';
     }).join('');
 }
-/** حذفِ تبادلهٔ جدید: اثرش کامل برمی‌گردد (تبدیل‌های قبلی این گزینه را ندارند) */
+function _fxSideName(side) {
+    if (!side || side.kind === 'none') return '';
+    try {
+        if (side.kind === 'cashbox') { var b = ((db.getCashboxes && db.getCashboxes()) || []).find(function (x) { return String(x.id) === String(side.id); }); return b ? b.name : ''; }
+        var p = ((db.getPersons && db.getPersons()) || []).find(function (x) { return String(x.id) === String(side.id); }); return p ? p.name : '';
+    } catch (e) { return ''; }
+}
+/** حذفِ کاملِ تبادله (همهٔ لاگ‌ها و سندهای شخص)؛ برای تبادله‌های قبلی هم */
 function _fxDelete(fxId) {
-    var x = _fxCollect().find(function (e) { return e.fxId === fxId && !e.legacy; });
+    var x = _fxFind(fxId);
     if (!x) return;
     var go = function () {
         try {
-            var logs = []; try { logs = JSON.parse(localStorage.getItem('cashboxTransactions') || '[]') || []; } catch (e) { logs = []; }
-            logs.filter(function (g) { return g && g.fxId === fxId; }).forEach(function (g) {
-                try { db.updateCashboxBalance(parseInt(g.cashboxId), parseFloat(g.amount) || 0, g.type === 'transfer_in' ? 'out' : 'in', g.currency); } catch (e) {}
-            });
-            localStorage.setItem('cashboxTransactions', JSON.stringify(logs.filter(function (g) { return !(g && g.fxId === fxId); })));
-            // سندهای «صرافی»ِ همین تبادله (اثرشان فقط روی حسابِ اشخاص است و با حذف برمی‌گردد)
-            var txs = (db.getTransactions && db.getTransactions()) || [];
-            localStorage.setItem('transactions', JSON.stringify(txs.filter(function (t) { return !(t && t.fxId === fxId); })));
-            try { if (typeof addChangelog === 'function') addChangelog('حذف', 'تبادله ارز', x, 'حذف تبادله ارز'); } catch (e) {}
-            try { if (typeof loadCashboxes === 'function') loadCashboxes(); } catch (e) {}
-            try { window.dispatchEvent(new CustomEvent('jouya-data-change', { detail: { reason: 'fx' } })); } catch (e) {}
+            if (!_fxRemoveEffects(x)) { showMessage('خطا', 'سندِ این تبادله پیدا نشد.'); return; }
+            try { if (typeof addChangelog === 'function') addChangelog('حذف', 'تبادله ارز', { fxId: x.fxId }, 'حذف تبادله ارز'); } catch (e) {}
+            _fxRefreshAll();
             try { showToast('تبادله حذف شد و اثرش برگشت.', 'success'); } catch (e) {}
         } catch (e) { console.error('fx delete error:', e); }
         fxRender();
+        try { var cbId = window.__cbTxListId; if (cbId != null && typeof loadCashboxTransactionsList === 'function') loadCashboxTransactionsList(cbId); } catch (e) {}
     };
-    if (typeof showStyledConfirm === 'function') showStyledConfirm('حذف تبادله', 'تبادله حذف و اثرش روی خزانه‌ها و حساب اشخاص کامل برگردانده می‌شود. ادامه می‌دهید؟', go);
-    else if (confirm('حذف تبادله؟')) go();
+    var msg = 'آیا از حذفِ این تبادلهٔ ارز اطمینان دارید؟ اثرِ آن از خزانه‌ها و حساب‌ها برداشته می‌شود.';
+    if (typeof showStyledConfirm === 'function') showStyledConfirm('حذف تبادله', msg, go); else if (confirm(msg)) go();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -47102,7 +47328,7 @@ function _apexPersonEmpMode() {
 function _apexEmpTypeChanged() {
     var t = (document.getElementById('emp-contract-type') || {}).value || '';
     var sal = document.getElementById('emp-salary');
-    if (sal) sal.placeholder = t === 'روزوار' ? 'مزدِ هر روز' : (t === 'ساعتوار' ? 'نرخِ هر ساعت' : 'معاشِ ماهوار');
+    if (sal) sal.placeholder = t === 'روزوار' ? 'مزدِ هر روز' : (t === 'ساعتوار' ? 'نرخِ هر ساعت' : 'مقدار معاش');
 }
 function _apexEmpFormLoad(person) {
     _apexEmpEnsureBlock();

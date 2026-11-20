@@ -11349,3 +11349,46 @@ body.dark-mode .apx-rl-row .apx-rl-badge { background: #273449; color: #e2e8f0; 
  * نشانِ data-jruntime="android" از <head> در index.html گذاشته می‌شود؛ پس این گزینه دیگر به
  * زمان‌بندیِ اجرای script.js وابسته نیست. در وب و موبایل‌وب این نشان نیست و رفتار تغییری ندارد. */
 html[data-jruntime="android"] #ssb-item-update { display: flex !important; }
+
+/* ── (نوامبر ۲۰ — سند 1.6.10، بخش ۲-۸) کارتِ «لیست تبادلات» مثلِ لیستِ معاملاتِ شخص ── */
+.fx-card.fx-card2 { display: block; padding: 14px 16px 12px 64px; border-right: 4px solid #94a3b8; border-radius: 14px; }
+.fx-card2 .fx-c-head { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0; }
+.fx-card2 .fx-c-av { width: 44px; height: 44px; border: 1.5px solid #94a3b8; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; color: #1e3a5f; background: #fff; flex: 0 0 auto; }
+.fx-card2 .fx-c-title { font-weight: 800; color: #1e293b; font-size: 1.05rem; }
+.fx-card2 .fx-c-amts { margin-inline-start: auto; margin-inline-end: auto; display: inline-flex; gap: 22px; direction: rtl; }
+.fx-card2 .fx-amt { font-weight: 800; color: #1e293b; direction: ltr; unicode-bidi: isolate; }
+.fx-card2 .fx-c-meta2 { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 18px; padding-top: 10px; font-size: .86rem; color: #94a3b8; }
+.fx-card2 .fx-kv b { color: #334155; font-weight: 700; margin-inline-end: 4px; }
+.fx-card2 .fx-c-pnl.fx-gain, .fx-card2 .fx-c-pnl.fx-gain b { color: #16a34a; }
+.fx-card2 .fx-c-pnl.fx-loss, .fx-card2 .fx-c-pnl.fx-loss b { color: #dc2626; }
+.fx-card2 .fx-c-notes { padding-top: 4px; font-size: .86rem; color: #94a3b8; }
+.fx-card2 .fx-c-notes b { color: #334155; }
+.fx-card2 > .product-card-actions { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); }
+body.dark-mode .fx-card2 .fx-c-title, body.dark-mode .fx-card2 .fx-amt { color: #e2e8f0; }
+body.dark-mode .fx-card2 .fx-kv b, body.dark-mode .fx-card2 .fx-c-notes b { color: #cbd5e1; }
+body.dark-mode .fx-card2 .fx-c-head { border-bottom-color: #334155; }
+@media (max-width: 600px) {
+    .fx-card.fx-card2 { padding: 14px 14px 12px 14px; }
+    .fx-card2 .fx-c-head { border-bottom: 0; padding-bottom: 4px; }
+    .fx-card2 .fx-c-head .fx-c-amts { display: none; }
+    .fx-card2 .fx-c-meta2 { justify-content: flex-start; padding-top: 2px; }
+    .fx-card2 > .product-card-actions { top: 14px; transform: none; }
+    .fx-card2 .fx-c-head { padding-inline-end: 56px; }
+    .fx-card2 .fx-c-amts-m { display: flex; gap: 26px; font-size: 1.05rem; padding-top: 8px; }
+}
+.fx-card2 .fx-c-amts-m { display: none; }
+@media (max-width: 600px) { .fx-card2 .fx-c-amts-m { display: flex; } }
+
+/* ── (نوامبر ۲۰) فرم‌های «ثبت» (شخص، مصرف، دریافتی، پرداختی، خزانه، انتقال، تبادله، ورودی/خروجی، اضافه‌کاری)
+ *   در همهٔ نسخه‌ها — پنجره‌ای یا صفحهٔ کامل (موبایل/اندروید) — بدونِ ترانزیشن و بدونِ لغزیدن از پائین باز می‌شوند. */
+#person-form.section, #expense-form.section, #receipt-form.section, #payment-form.section, #cashbox-form.section,
+#cashbox-transfer-form-section.section, #cashbox-withdraw-form-section.section, #cashbox-deposit-form-section.section,
+#currency-convert-form.section, #product-adj-form.section, #emp-ot-form.section, #product-form.section {
+    animation: none !important;
+}
+
+/* ── (نوامبر ۲۰) فرمِ کارمند مثلِ APEX Store: شروع | ختم کنارِ هم؛ «چاپ» در نوار پایین فقط در حالتِ کارمند ── */
+.apx-emp-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.apx-emp-dates > .bill-field { margin: 0; }
+#person-print-btn { display: none; background: #111827; color: #fff; border: none; border-radius: 10px; padding: 10px 18px; font-weight: 700; font-family: inherit; cursor: pointer; align-items: center; gap: 8px; }
+#person-form.apx-emp-on #person-print-btn { display: inline-flex; }
